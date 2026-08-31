@@ -1,17 +1,17 @@
 """
-fighter.py — Simple 1v1 arena fighter with jump, gravity, weapon system.
+fighter.py -- Simple 1v1 arena fighter with jump, gravity, weapon system.
 """
 import math
 
-# ─── Physics ─────────────────────────────────────────────────────────────────
-GRAVITY       = 1200.0   # px/s²
+# --- Physics -----------------------------------------------------------------
+GRAVITY       = 1200.0   # px/s
 MOVE_SPEED    = 280.0
 JUMP_SPEED    = -520.0
 MAX_FALL      = 800.0
 ARENA_LEFT    = 20
 ARENA_RIGHT   = 1080
 
-# ─── Weapons ─────────────────────────────────────────────────────────────────
+# --- Weapons -----------------------------------------------------------------
 WEAPON_DEFS = {
     "fists":  {"name": "Fists",  "damage": 5,  "range": 55,  "cooldown": 0.35,
                "knockback": 120,  "block_mult": 0.5, "projectile": False},
@@ -60,7 +60,7 @@ class Fighter:
         self.damage_dealt    = 0
         self.kills           = 0
 
-    # ── Properties ────────────────────────────────────────────────────────────
+    # -- Properties ------------------------------------------------------------
     @property
     def rect(self):
         return (self.x, self.y, self.WIDTH, self.HEIGHT)
@@ -81,7 +81,7 @@ class Fighter:
     def alive(self) -> bool:
         return self.hp > 0
 
-    # ── Actions ───────────────────────────────────────────────────────────────
+    # -- Actions ---------------------------------------------------------------
     def move(self, direction: int):
         """direction: -1 (left), 0 (stop), 1 (right)"""
         self.vx = direction * MOVE_SPEED
@@ -132,7 +132,7 @@ class Fighter:
             return old
         return None
 
-    # ── Update ────────────────────────────────────────────────────────────────
+    # -- Update ----------------------------------------------------------------
     def update(self, dt: float, platforms: list, walls: list):
         """Update physics, timers, collisions."""
         # Timers
@@ -220,7 +220,7 @@ class Fighter:
         self.on_ground = False
         self.damage_dealt = 0
 
-    # ── Serialization (for Firebase) ──────────────────────────────────────────
+    # -- Serialization (for Firebase) ------------------------------------------
     def to_dict(self) -> dict:
         return {
             "x": round(self.x, 1), "y": round(self.y, 1),

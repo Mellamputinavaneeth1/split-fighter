@@ -1,8 +1,8 @@
 """
-main.py — Split Fighter: 1v1 Arena Brawl (Firebase multiplayer)
+main.py -- Split Fighter: 1v1 Arena Brawl (Firebase multiplayer)
 
-HOST  — runs game logic, pushes state to Firebase, reads remote inputs
-CLIENT — reads state from Firebase, pushes own inputs, renders
+HOST  -- runs game logic, pushes state to Firebase, reads remote inputs
+CLIENT -- reads state from Firebase, pushes own inputs, renders
 """
 
 import pygame
@@ -10,6 +10,7 @@ import sys
 import math
 import time as _time
 import threading
+import asyncio
 
 from fighter import Fighter, WEAPON_DEFS
 from arena import Arena, Arrow, GROUND_Y
@@ -17,13 +18,13 @@ from effects import ParticleSystem, ScreenShake, HitStop, DamageNumber
 from lobby import LobbyScreen
 from firebase_db import FirebaseDB
 
-# ─── Window ───────────────────────────────────────────────────────────────────
+# --- Window -------------------------------------------------------------------
 W_WIDTH   = 1100
 W_HEIGHT  = 700
 FPS       = 60
 SYNC_RATE = 4     # push/pull Firebase every N frames (~15fps sync)
 
-# ─── Colors ───────────────────────────────────────────────────────────────────
+# --- Colors -------------------------------------------------------------------
 WHITE    = (255, 255, 255)
 BLACK    = (0, 0, 0)
 GRAY     = (130, 130, 140)
@@ -55,7 +56,7 @@ def hp_color(hp):
     return HP_R
 
 
-# ─── Stick figure drawing ─────────────────────────────────────────────────────
+# --- Stick figure drawing -----------------------------------------------------
 def draw_fighter(surface, f: Fighter, cam_x=0, cam_y=0):
     cx = int(f.center_x + cam_x)
     by = int(f.y + cam_y)
@@ -89,7 +90,7 @@ def draw_fighter(surface, f: Fighter, cam_x=0, cam_y=0):
         wt = gf("Segoe UI", 10).render(wname, True, GOLD)
         surface.blit(wt, (cx - wt.get_width() // 2, int(hip_y) + 42))
 
-    # ── Arms ──────────────────────────────────────────────────────────────
+    # -- Arms --------------------------------------------------------------
     arm_start = (cx, int(neck_y + 6))
     arm_len1, arm_len2 = 18, 20
 
@@ -105,7 +106,7 @@ def draw_fighter(surface, f: Fighter, cam_x=0, cam_y=0):
 
     if f.is_attacking and f.attack_anim > 0:
         # Attack swing animation
-        swing = 1.0 - (f.attack_anim / 0.2)  # 0→1
+        swing = 1.0 - (f.attack_anim / 0.2)  # 0RIGHT1
         swing_a = math.pi * 0.5 + d * swing * 1.2
         end = draw_arm(arm_start, swing_a - 0.3, arm_len1, swing_a + 0.2, arm_len2,
                        (255, 200, 80), 4)
@@ -165,7 +166,7 @@ def draw_fighter(surface, f: Fighter, cam_x=0, cam_y=0):
             pygame.draw.arc(surface, (140, 180, 110),
                             (wx - 6, wy - 12, 12, 24), math.pi * 0.3, math.pi * 1.7, 2)
 
-    # ── Legs ──────────────────────────────────────────────────────────────
+    # -- Legs --------------------------------------------------------------
     leg_len1, leg_len2 = 20, 22
     if not f.on_ground:
         # In-air legs
@@ -188,7 +189,7 @@ def draw_fighter(surface, f: Fighter, cam_x=0, cam_y=0):
                      math.pi * 0.55 + side * 0.08, leg_len1,
                      math.pi * 0.48, leg_len2, body)
 
-    # ── Block indicator ───────────────────────────────────────────────────
+    # -- Block indicator ---------------------------------------------------
     if f.blocking:
         shield_s = pygame.Surface((50, 70), pygame.SRCALPHA)
         p = int(50 + 30 * math.sin(_time.time() * 5))
@@ -196,7 +197,7 @@ def draw_fighter(surface, f: Fighter, cam_x=0, cam_y=0):
         surface.blit(shield_s, (cx - 25, int(head_y) - 10))
 
 
-# ─── HUD ─────────────────────────────────────────────────────────────────────
+# --- HUD ---------------------------------------------------------------------
 def draw_hp_bar(surface, x, y, w, h, hp, max_hp, color, right=False):
     ratio = max(0.0, min(1.0, hp / max_hp))
     pygame.draw.rect(surface, HP_BG, (x, y, w, h), border_radius=4)
@@ -208,14 +209,14 @@ def draw_hp_bar(surface, x, y, w, h, hp, max_hp, color, right=False):
     pygame.draw.rect(surface, WHITE, (x, y, w, h), 1, border_radius=4)
 
 
-# ─── MAIN ─────────────────────────────────────────────────────────────────────
-def main():
+# --- MAIN ---------------------------------------------------------------------
+async def main():
     pygame.init()
     screen = pygame.display.set_mode((W_WIDTH, W_HEIGHT))
-    pygame.display.set_caption("SPLIT FIGHTER — Arena Brawl")
+    pygame.display.set_caption("SPLIT FIGHTER -- Arena Brawl")
     clock = pygame.time.Clock()
 
-    # ── Lobby ─────────────────────────────────────────────────────────────────
+    # -- Lobby -----------------------------------------------------------------
     lobby = LobbyScreen(W_WIDTH, W_HEIGHT)
     while not lobby.ready_to_start:
         dt = clock.tick(FPS) / 1000.0
@@ -226,6 +227,7 @@ def main():
             lobby.handle_event(ev)
         lobby.draw(screen)
         pygame.display.flip()
+        await asyncio.sleep(0)
 
     # Flush event queue so stale ENTER/SPACE from lobby doesn't affect game
     pygame.event.clear()
@@ -238,11 +240,11 @@ def main():
     my_slot   = config["my_slot"]
     is_host   = config["is_host"]
 
-    # Map slot → player id
+    # Map slot RIGHT player id
     i_am_p1 = my_slot.startswith("a")
     my_id   = "P1" if i_am_p1 else "P2"
 
-    # ── Create game objects ───────────────────────────────────────────────────
+    # -- Create game objects ---------------------------------------------------
     arena = Arena(W_WIDTH, W_HEIGHT)
     p1 = Fighter(80,  GROUND_Y - 100, P1_COL, "P1")
     p2 = Fighter(980, GROUND_Y - 100, P2_COL, "P2")
@@ -264,7 +266,7 @@ def main():
     pickup_hint  = ""     # shows "Press E to pick up SWORD" etc
     pickup_timer = 0.0
 
-    # ── Firebase sync state ───────────────────────────────────────────────────
+    # -- Firebase sync state ---------------------------------------------------
     _remote_state  = {}
     _remote_input  = {}
     _sync_lock     = threading.Lock()
@@ -302,14 +304,14 @@ def main():
         target=_host_sync_loop if is_host else _client_sync_loop, daemon=True)
     sync_thread.start()
 
-    # ── Input state for my fighter ────────────────────────────────────────────
+    # -- Input state for my fighter --------------------------------------------
     move_dir   = 0    # -1, 0, 1
     want_jump  = False
     want_atk   = False
     want_block = False
     want_pickup = False
 
-    # ── Game loop ─────────────────────────────────────────────────────────────
+    # -- Game loop -------------------------------------------------------------
     running = True
     while running:
         dt = clock.tick(FPS) / 1000.0
@@ -322,7 +324,7 @@ def main():
             pygame.display.flip()
             continue
 
-        # ── Events ────────────────────────────────────────────────────────────
+        # -- Events ------------------------------------------------------------
         want_jump   = False
         want_atk    = False
         want_pickup = False
@@ -367,7 +369,7 @@ def main():
             if keys[pygame.K_d]: move_dir += 1
             want_block = keys[pygame.K_k]
 
-        # ── Apply local input to my fighter ───────────────────────────────────
+        # -- Apply local input to my fighter -----------------------------------
         if not game_over:
             my_fighter.move(move_dir)
             if want_jump:
@@ -379,7 +381,7 @@ def main():
             else:
                 my_fighter.stop_block()
 
-        # ── Push my input to Firebase ─────────────────────────────────────────
+        # -- Push my input to Firebase -----------------------------------------
         if frame_count % 2 == 0 and not game_over:
             inp_data = {
                 "ts": _time.time(),
@@ -395,7 +397,7 @@ def main():
             threading.Thread(target=db.push_input,
                              args=(room_code, slot, inp_data), daemon=True).start()
 
-        # ── HOST: read remote inputs + run game logic ─────────────────────────
+        # -- HOST: read remote inputs + run game logic -------------------------
         if is_host:
             # Apply remote player's input
             with _sync_lock:
@@ -430,7 +432,7 @@ def main():
                 particles.update(dt)
                 shake.update(dt)
 
-                # ── Combat: melee attacks ─────────────────────────────────────
+                # -- Combat: melee attacks -------------------------------------
                 for atk, dfn in [(p1, p2), (p2, p1)]:
                     if atk.is_attacking and atk.attack_anim > 0.12:
                         info = atk.weapon_info
@@ -471,7 +473,7 @@ def main():
                                               atk.center_y, atk.facing, atk.player_id)
                             atk.attack_anim = 0.12
 
-                # ── Arrow hits ────────────────────────────────────────────────
+                # -- Arrow hits ------------------------------------------------
                 for arrow in arena.arrows:
                     for dfn in [p1, p2]:
                         if arrow.hits_fighter(dfn):
@@ -484,7 +486,7 @@ def main():
                             arrow.alive = False
                             break
 
-                # ── Check win condition ───────────────────────────────────────
+                # -- Check win condition ---------------------------------------
                 if p1.hp <= 0:
                     game_over = True; winner = "P2"
                     particles.emit_burst(int(p1.center_x), int(p1.center_y),
@@ -509,7 +511,7 @@ def main():
                     _remote_state.update(gs)
 
         else:
-            # ── CLIENT: apply remote game state ───────────────────────────────
+            # -- CLIENT: apply remote game state -------------------------------
             with _sync_lock:
                 gs = dict(_remote_state)
             if gs:
@@ -540,9 +542,9 @@ def main():
                 pickup_hint = f"Press E to pick up {wp.weapon.upper()}"
                 break
 
-        # ══════════════════════════════════════════════════════════════════════
+        # ======================================================================
         #  RENDERING
-        # ══════════════════════════════════════════════════════════════════════
+        # ======================================================================
         cx, cy = shake.offset_x, shake.offset_y
 
         # Arena (bg, platforms, walls, weapons, arrows)
@@ -566,7 +568,7 @@ def main():
         for d in dmg_numbers:
             d.draw(screen, fonts_cache, cx, cy)
 
-        # ── HUD ──────────────────────────────────────────────────────────────
+        # -- HUD --------------------------------------------------------------
         hud = pygame.Surface((W_WIDTH, 55), pygame.SRCALPHA)
         hud.fill((0, 0, 0, 180))
         screen.blit(hud, (0, 0))
@@ -615,7 +617,7 @@ def main():
         fps_t = gf("Segoe UI", 10).render(f"FPS:{int(clock.get_fps())}  Room:{room_code}", True, DIM)
         screen.blit(fps_t, (W_WIDTH - fps_t.get_width() - 8, W_HEIGHT - 14))
 
-        # ── Game over overlay ─────────────────────────────────────────────────
+        # -- Game over overlay -------------------------------------------------
         if game_over:
             ov = pygame.Surface((W_WIDTH, W_HEIGHT), pygame.SRCALPHA)
             ov.fill((0, 0, 0, 180))
@@ -642,6 +644,7 @@ def main():
                 screen.blit(wt3, (W_WIDTH // 2 - wt3.get_width() // 2, W_HEIGHT // 2 + 100))
 
         pygame.display.flip()
+        await asyncio.sleep(0)
 
     _sync_running = False
     try:
@@ -664,9 +667,9 @@ def _handle_pickup(fighter, arena):
                 # Find a pickup that's inactive and of that type, or just mark it
                 pass
             return
-    # No pickup nearby — drop current weapon
+    # No pickup nearby -- drop current weapon
     fighter.drop_weapon()
 
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())

@@ -1,9 +1,9 @@
 """
-lobby.py — Firebase-backed multiplayer lobby for Split Fighter.
+lobby.py -- Firebase-backed multiplayer lobby for Split Fighter.
 
 Flow:
-  HOME → Create Room → (Firebase room created) → Waiting Room (host + joiners pick slots)
-  HOME → Join Room  → Enter code              → Pick slot → Waiting Room
+  HOME RIGHT Create Room RIGHT (Firebase room created) RIGHT Waiting Room (host + joiners pick slots)
+  HOME RIGHT Join Room  RIGHT Enter code              RIGHT Pick slot RIGHT Waiting Room
 """
 
 import pygame
@@ -18,7 +18,7 @@ try:
 except Exception:
     _FIREBASE_AVAILABLE = False
 
-# ─── Screen IDs ──────────────────────────────────────────────────────────────
+# --- Screen IDs --------------------------------------------------------------
 S_HOME     = "home"
 S_CREATE   = "create"       # waiting room (host sees this after picking slot)
 S_JOIN     = "join"         # code entry
@@ -32,7 +32,7 @@ SLOT_INFO  = {
     "b_left":  ("PLAYER 2", "Right side (Blue)",  "P2"),
 }
 
-# ─── Colors ──────────────────────────────────────────────────────────────────
+# --- Colors ------------------------------------------------------------------
 WHITE  = (255, 255, 255)
 BLACK  = (0, 0, 0)
 GRAY   = (130, 130, 140)
@@ -95,7 +95,7 @@ class LobbyScreen:
         # Init Firebase in background
         self._init_firebase_async()
 
-    # ── Firebase init ─────────────────────────────────────────────────────────
+    # -- Firebase init ---------------------------------------------------------
     def _init_firebase_async(self):
         self.loading = True
         self.loading_msg = "Connecting to database..."
@@ -111,7 +111,7 @@ class LobbyScreen:
             self.fb_error = str(e)
         self.loading = False
 
-    # ── Slot polling ──────────────────────────────────────────────────────────
+    # -- Slot polling ----------------------------------------------------------
     def _start_polling(self):
         if self._polling:
             return
@@ -136,7 +136,7 @@ class LobbyScreen:
                 pass
             _time.sleep(0.6)
 
-    # ── Firebase actions (run in threads to avoid blocking) ───────────────────
+    # -- Firebase actions (run in threads to avoid blocking) -------------------
     def _do_create_room(self):
         self.loading = True
         self.loading_msg = "Creating room..."
@@ -157,7 +157,7 @@ class LobbyScreen:
             except Exception as e:
                 pass
         self.loading  = False
-        self.fb_error = "Could not create room — check your internet."
+        self.fb_error = "Could not create room -- check your internet."
         self.screen   = S_ERROR
 
     def _do_join_room(self, code: str):
@@ -176,7 +176,7 @@ class LobbyScreen:
                 self.wrong_code = True
                 self.typing     = ""
                 return
-            # Room found — go to slot selection
+            # Room found -- go to slot selection
             self.room_code      = code
             self.live_slots     = {k: room.get("slots", {}).get(k, "") for k in SLOT_KEYS}
             self._start_polling()
@@ -204,13 +204,13 @@ class LobbyScreen:
                 self.screen = S_CREATE if self.is_host else S_WAITING
             else:
                 self.loading    = False
-                self.fb_error   = "Slot was taken — pick another."
+                self.fb_error   = "Slot was taken -- pick another."
                 self.screen     = S_SLOTS
         except Exception as e:
             self.loading    = False
             self.fb_error   = str(e)
 
-    # ── Update ───────────────────────────────────────────────────────────────
+    # -- Update ---------------------------------------------------------------
     def update(self, dt: float):
         self.time         += dt
         self.cursor_blink += dt
@@ -221,7 +221,7 @@ class LobbyScreen:
                 p["y"] = self.H + 5
                 p["x"] = random.randint(0, self.W)
 
-    # ── Events ────────────────────────────────────────────────────────────────
+    # -- Events ----------------------------------------------------------------
     def handle_event(self, event: pygame.event.Event):
         if event.type != pygame.KEYDOWN or self.loading:
             return
@@ -274,7 +274,7 @@ class LobbyScreen:
             if self.live_slots.get(sk):
                 return   # already taken
             if self.is_host and not self.room_code:
-                # Host hasn't created room yet — create after claiming slot
+                # Host hasn't created room yet -- create after claiming slot
                 self.my_slot = sk
                 self._launch(self._do_create_room)
             else:
@@ -306,7 +306,7 @@ class LobbyScreen:
         """Run a Firebase function in a background thread."""
         threading.Thread(target=fn, args=args, daemon=True).start()
 
-    # ── Config export ─────────────────────────────────────────────────────────
+    # -- Config export ---------------------------------------------------------
     def get_config(self) -> dict:
         team = "A" if self.my_slot.startswith("a") else "B"
         role = "left" if self.my_slot.endswith("left") else "right"
@@ -320,7 +320,7 @@ class LobbyScreen:
             "slots":       dict(self.live_slots),
         }
 
-    # ── Draw ─────────────────────────────────────────────────────────────────
+    # -- Draw -----------------------------------------------------------------
     def draw(self, surface: pygame.Surface):
         surface.fill(DARK)
         self._draw_bg(surface)
@@ -370,9 +370,9 @@ class LobbyScreen:
         cx, cy = self.W // 2, self.H // 2
         if not self.fb_ok and not self.loading:
             warn = fnt("Segoe UI", 13).render(
-                "⚠  Firebase not connected — edit config.json first", True, (255, 120, 50))
+                "!  Firebase not connected -- edit config.json first", True, (255, 120, 50))
             s.blit(warn, (cx - warn.get_width() // 2, 115))
-        options = [("CREATE ROOM", "Host a game — others join with your code"),
+        options = [("CREATE ROOM", "Host a game -- others join with your code"),
                    ("JOIN ROOM",   "Enter a 4-digit code to join")]
         bw, bh = 380, 80
         for i, (lbl, desc) in enumerate(options):
@@ -403,7 +403,7 @@ class LobbyScreen:
         cb = pygame.Surface((300, 78), pygame.SRCALPHA); cb.fill((0, 0, 0, 160))
         s.blit(cb, (cx - 150, 108))
         pygame.draw.rect(s, GOLD, (cx - 150, 108, 300, 78), 2, border_radius=6)
-        cl = fnt("Segoe UI", 13).render("ROOM CODE — Share with players:", True, GRAY)
+        cl = fnt("Segoe UI", 13).render("ROOM CODE -- Share with players:", True, GRAY)
         s.blit(cl, (cx - cl.get_width() // 2, 114))
         pulse = 0.85 + 0.15 * math.sin(self.time * 3)
         cc = (int(255 * pulse), int(215 * pulse), 0)
@@ -444,7 +444,7 @@ class LobbyScreen:
         dt = fnt("Consolas", 38, True).render(padded.strip(), True, dc)
         s.blit(dt, (cx - dt.get_width() // 2, by + 44))
         if self.wrong_code:
-            et = fnt("Segoe UI", 14, True).render("Room not found — try again", True, RED)
+            et = fnt("Segoe UI", 14, True).render("Room not found -- try again", True, RED)
             s.blit(et, (cx - et.get_width() // 2, by + bh + 8))
         for i, h in enumerate(["Type the 4-digit code from the host's screen",
                                 "Auto-confirms on 4th digit    ESC = Back"]):

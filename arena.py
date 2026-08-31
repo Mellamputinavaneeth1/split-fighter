@@ -1,5 +1,5 @@
 """
-arena.py — Map definition with platforms, walls, crates, weapon spawns.
+arena.py -- Map definition with platforms, walls, crates, weapon spawns.
 """
 import pygame
 import math
@@ -7,7 +7,7 @@ import random
 import time as _time
 
 
-# ─── Map elements ─────────────────────────────────────────────────────────────
+# --- Map elements -------------------------------------------------------------
 GROUND_Y = 555
 GROUND_H = 145   # thickness of ground bar
 
@@ -22,16 +22,16 @@ C_CRATE    = (140, 100, 50)
 C_CRATE_DK = (100, 70, 35)
 C_BG       = (12, 12, 22)
 
-# ─── Weapon pickup colors/icons ──────────────────────────────────────────────
+# --- Weapon pickup colors/icons ----------------------------------------------
 WEAPON_VISUALS = {
-    "sword":  {"color": (180, 200, 220), "icon": "⚔", "glow": (120, 150, 255)},
-    "axe":    {"color": (200, 140, 80),  "icon": "🪓", "glow": (255, 140, 50)},
-    "shield": {"color": (100, 160, 220), "icon": "🛡", "glow": (80, 160, 255)},
-    "bow":    {"color": (160, 200, 120), "icon": "🏹", "glow": (120, 255, 80)},
+    "sword":  {"color": (180, 200, 220), "icon": "SWORD", "glow": (120, 150, 255)},
+    "axe":    {"color": (200, 140, 80),  "icon": "AXE", "glow": (255, 140, 50)},
+    "shield": {"color": (100, 160, 220), "icon": "SHIELD", "glow": (80, 160, 255)},
+    "bow":    {"color": (160, 200, 120), "icon": "BOW", "glow": (120, 255, 80)},
 }
 
 
-# ─── Platform / Wall dicts ───────────────────────────────────────────────────
+# --- Platform / Wall dicts ---------------------------------------------------
 def _plat(x, y, w, h=16):
     return {"x": x, "y": y, "w": w, "h": h, "type": "platform"}
 
@@ -43,7 +43,7 @@ def _ground():
     return {"x": 0, "y": GROUND_Y, "w": 1100, "h": GROUND_H, "type": "ground"}
 
 
-# ─── Map layout ──────────────────────────────────────────────────────────────
+# --- Map layout --------------------------------------------------------------
 def create_map():
     """Returns (platforms, walls, weapon_spawns)."""
     platforms = [
@@ -84,7 +84,7 @@ def create_map():
     return platforms, walls, weapon_spawns
 
 
-# ─── Weapon Pickup ───────────────────────────────────────────────────────────
+# --- Weapon Pickup -----------------------------------------------------------
 class WeaponPickup:
     RESPAWN_TIME = 15.0
     SIZE = 28
@@ -152,7 +152,7 @@ class WeaponPickup:
         surface.blit(label, (dx + self.SIZE // 2 - label.get_width() // 2, dy - 14))
 
 
-# ─── Arrow projectile ────────────────────────────────────────────────────────
+# --- Arrow projectile --------------------------------------------------------
 class Arrow:
     SPEED = 650.0
 
@@ -204,7 +204,7 @@ class Arrow:
             (ex, ey - 4), (ex, ey + 4)])
 
 
-# ─── Arena renderer ──────────────────────────────────────────────────────────
+# --- Arena renderer ----------------------------------------------------------
 class Arena:
     def __init__(self, width, height):
         self.W = width
@@ -254,7 +254,7 @@ class Arena:
             wp.y = wp.spawn_y
         self.arrows.clear()
 
-    # ── Drawing ──────────────────────────────────────────────────────────────
+    # -- Drawing --------------------------------------------------------------
     def draw(self, surface, font_small, cam_x=0, cam_y=0):
         # Background
         surface.fill(C_BG)
@@ -322,7 +322,7 @@ class Arena:
         for a in self.arrows:
             a.draw(surface)
 
-    # ── Serialization ────────────────────────────────────────────────────────
+    # -- Serialization --------------------------------------------------------
     def to_dict(self):
         return {
             "weapons": [wp.to_dict() for wp in self.weapon_pickups],

@@ -1,5 +1,5 @@
 """
-firebase_db.py — Firebase Realtime Database REST wrapper for Split Fighter.
+firebase_db.py -- Firebase Realtime Database REST wrapper for Split Fighter.
 
 Uses only the built-in `requests` library (no Firebase SDK needed).
 Firebase is used as the shared "room database" so players on different
@@ -22,7 +22,7 @@ import time
 import threading
 
 
-# ─── Load config ─────────────────────────────────────────────────────────────
+# --- Load config -------------------------------------------------------------
 import os as _os
 
 _CONFIG_FILE = _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), "config.json")
@@ -65,10 +65,10 @@ def load_firebase_url() -> str:
     if url and "YOUR-PROJECT" not in url and url.startswith("https://"):
         return url
 
-    # ── First-run setup: prompt in console ────────────────────────────────
+    # -- First-run setup: prompt in console --------------------------------
     print()
     print("=" * 60)
-    print("  SPLIT FIGHTER — First-Time Firebase Setup")
+    print("  SPLIT FIGHTER -- First-Time Firebase Setup")
     print("=" * 60)
     print()
     print("  This game uses Firebase (free) so players on different")
@@ -106,7 +106,7 @@ def load_firebase_url() -> str:
             print()
 
 
-# ─── FirebaseDB ───────────────────────────────────────────────────────────────
+# --- FirebaseDB ---------------------------------------------------------------
 class FirebaseDB:
     """
     Thin REST wrapper around Firebase Realtime Database.
@@ -121,7 +121,7 @@ class FirebaseDB:
         self._session = requests.Session()
         self._session.headers.update({"Content-Type": "application/json"})
 
-    # ── Internal helpers ─────────────────────────────────────────────────────
+    # -- Internal helpers -----------------------------------------------------
     def _url(self, *parts) -> str:
         path = "/".join(str(p) for p in parts)
         return f"{self.base_url}/{path}.json"
@@ -158,12 +158,12 @@ class FirebaseDB:
         except requests.RequestException:
             return False
 
-    # ── Room CRUD ─────────────────────────────────────────────────────────────
+    # -- Room CRUD -------------------------------------------------------------
     def create_room(self, code: str, host_slot: str) -> bool:
         """Create a new room. Returns False if code already exists."""
         existing = self._get("rooms", code)
         if existing and existing.get("status") in ("lobby", "fight"):
-            return False   # code collision — caller should retry with new code
+            return False   # code collision -- caller should retry with new code
 
         room_data = {
             "code":        code,
@@ -219,7 +219,7 @@ class FirebaseDB:
     def delete_room(self, code: str) -> bool:
         return self._delete("rooms", code)
 
-    # ── Game state sync ──────────────────────────────────────────────────────
+    # -- Game state sync ------------------------------------------------------
     def push_game_state(self, code: str, state: dict) -> bool:
         """Host writes the authoritative game state."""
         return self._put(state, "rooms", code, "game_state")
@@ -228,7 +228,7 @@ class FirebaseDB:
         """Clients read the latest game state."""
         return self._get("rooms", code, "game_state")
 
-    # ── Input sync ───────────────────────────────────────────────────────────
+    # -- Input sync -----------------------------------------------------------
     def push_input(self, code: str, slot: str, input_data: dict) -> bool:
         """Each player writes their current inputs."""
         return self._put(input_data, "rooms", code, "inputs", slot)
@@ -239,7 +239,7 @@ class FirebaseDB:
         return data if isinstance(data, dict) else {}
 
 
-# ─── AsyncPoller ─────────────────────────────────────────────────────────────
+# --- AsyncPoller -------------------------------------------------------------
 class AsyncPoller:
     """
     Background thread that polls Firebase at a fixed rate
@@ -277,7 +277,7 @@ class AsyncPoller:
             time.sleep(self._interval)
 
 
-# ─── Serialisation helpers ────────────────────────────────────────────────────
+# --- Serialisation helpers ----------------------------------------------------
 def serialise_fighter(f) -> dict:
     """Convert a Fighter object to a JSON-safe dict."""
     return {
