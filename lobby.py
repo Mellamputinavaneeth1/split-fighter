@@ -97,11 +97,7 @@ class LobbyScreen:
 
     # -- Firebase init ---------------------------------------------------------
     def _init_firebase_async(self):
-        self.loading = True
-        self.loading_msg = "Connecting to database..."
-        threading.Thread(target=self._do_init_firebase, daemon=True).start()
-
-    def _do_init_firebase(self):
+        self.loading = False
         try:
             self.db    = FirebaseDB()
             self.fb_ok = True
@@ -109,7 +105,6 @@ class LobbyScreen:
         except Exception as e:
             self.fb_ok    = False
             self.fb_error = str(e)
-        self.loading = False
 
     # -- Slot polling ----------------------------------------------------------
     def _start_polling(self):

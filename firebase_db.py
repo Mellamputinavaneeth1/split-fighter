@@ -55,55 +55,17 @@ def _validate_url(url: str) -> bool:
 def load_firebase_url() -> str:
     """
     Read firebase_url from config.json.
-    If missing or placeholder, interactively prompt the user in the console
-    and save it so they never have to do it again.
+    Safe for both desktop and browser WebAssembly.
     """
+    default_url = "https://split-fighter-default-rtdb.firebaseio.com"
     cfg = _read_config()
     url = cfg.get("firebase_url", "").rstrip("/")
 
-    # Check if it's a real URL (not the placeholder)
     if url and "YOUR-PROJECT" not in url and url.startswith("https://"):
         return url
 
-    # -- First-run setup: prompt in console --------------------------------
-    print()
-    print("=" * 60)
-    print("  SPLIT FIGHTER -- First-Time Firebase Setup")
-    print("=" * 60)
-    print()
-    print("  This game uses Firebase (free) so players on different")
-    print("  devices can connect using a room code.")
-    print()
-    print("  Quick setup (2 min):")
-    print("    1. Go to https://console.firebase.google.com")
-    print("    2. Create a project (name: split-fighter)")
-    print("    3. Build -> Realtime Database -> Create Database")
-    print("    4. Choose 'Start in test mode' -> Enable")
-    print("    5. Copy the database URL from the top of the page")
-    print()
-
-    while True:
-        user_url = input("  Paste your Firebase URL here: ").strip().rstrip("/")
-        if not user_url:
-            print("  X  URL cannot be empty. Try again.")
-            continue
-        if not user_url.startswith("https://"):
-            print("  X  URL must start with https://. Try again.")
-            continue
-
-        print("  Checking connection...", end=" ", flush=True)
-        if _validate_url(user_url):
-            print("OK  Connected!")
-            cfg["firebase_url"] = user_url
-            _write_config(cfg)
-            print(f"  Saved to {_CONFIG_FILE}")
-            print(f"  (Share this file with friends so they skip this step)")
-            print()
-            return user_url
-        else:
-            print("FAIL  Could not connect.")
-            print("  Check the URL and make sure 'test mode' is enabled.")
-            print()
+    # Fallback to default without blocking browser
+    return default_url
 
 
 # --- FirebaseDB ---------------------------------------------------------------
