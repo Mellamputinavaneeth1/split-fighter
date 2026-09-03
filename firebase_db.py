@@ -121,26 +121,28 @@ class FirebaseDB:
             return False
 
     # -- Room CRUD -------------------------------------------------------------
-    def create_room(self, code: str, host_slot: str) -> bool:
+    def create_room(self, code: str, host_slot: str, mode: str = "2p") -> bool:
         """Create a new room. Returns False if code already exists."""
         existing = self._get("rooms", code)
         if existing and existing.get("status") in ("lobby", "fight"):
             return False   # code collision -- caller should retry with new code
+
+        if mode == "4p":
+            slot_dict = {"a_left": "", "a_right": "", "b_left": "", "b_right": ""}
+            input_dict = {"a_left": None, "a_right": None, "b_left": None, "b_right": None}
+        else:
+            slot_dict = {"a_left": "", "b_left": ""}
+            input_dict = {"a_left": None, "b_left": None}
 
         room_data = {
             "code":        code,
             "status":      "lobby",
             "created_at":  time.time(),
             "host_slot":   host_slot,
-            "slots": {
-                "a_left":  "",
-                "b_left":  "",
-            },
+            "mode":        mode,
+            "slots":       slot_dict,
             "game_state": None,
-            "inputs": {
-                "a_left":  None,
-                "b_left":  None,
-            },
+            "inputs":      input_dict,
         }
         return self._put(room_data, "rooms", code)
 
@@ -150,6 +152,13 @@ class FirebaseDB:
         if data and isinstance(data, dict) and "code" in data:
             return data
         return None
+
+    def get_room_mode(self, code: str) -> str:
+        """Return room mode: '2p' or '4p'."""
+        room = self._get("rooms", code)
+        if room and isinstance(room, dict):
+            return room.get("mode", "2p")
+        return "2p"
 
     def room_exists(self, code: str) -> bool:
         room = self.get_room(code)

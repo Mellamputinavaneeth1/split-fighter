@@ -69,6 +69,13 @@ def draw_fighter(surface, f: Fighter, cam_x=0, cam_y=0):
     neck_y = head_y + head_r
     hip_y  = neck_y + 35
 
+    # Coordination boost aura (4P mode)
+    if getattr(f, 'coord_glow', False):
+        aura = pygame.Surface((80, 110), pygame.SRCALPHA)
+        pygame.draw.ellipse(aura, (255, 215, 0, 50), (0, 0, 80, 110))
+        pygame.draw.ellipse(aura, (255, 230, 120, 100), (4, 4, 72, 102), 2)
+        surface.blit(aura, (cx - 40, int(head_y - 18)))
+
     # Head
     pygame.draw.circle(surface, body, (cx, int(head_y)), head_r)
     pygame.draw.circle(surface, WHITE, (cx, int(head_y)), head_r, 2)
@@ -239,15 +246,23 @@ async def main():
     room_code = config["room_code"]
     my_slot   = config["my_slot"]
     is_host   = config["is_host"]
+    game_mode = config.get("game_mode", "2p")
+    my_role   = config.get("player_role", "mover")
+    my_team   = config.get("perspective", "A")
 
-    # Map slot RIGHT player id
+    is_4p   = game_mode == "4p"
     i_am_p1 = my_slot.startswith("a")
-    my_id   = "P1" if i_am_p1 else "P2"
+    if is_4p:
+        my_id = f"TEAM {my_team} ({my_role.upper()})"
+    else:
+        my_id = "P1" if i_am_p1 else "P2"
 
     # -- Create game objects ---------------------------------------------------
     arena = Arena(W_WIDTH, W_HEIGHT)
-    p1 = Fighter(80,  GROUND_Y - 100, P1_COL, "P1")
-    p2 = Fighter(980, GROUND_Y - 100, P2_COL, "P2")
+    p1_name = "TEAM A" if is_4p else "P1"
+    p2_name = "TEAM B" if is_4p else "P2"
+    p1 = Fighter(80,  GROUND_Y - 100, P1_COL, p1_name, team="A")
+    p2 = Fighter(980, GROUND_Y - 100, P2_COL, p2_name, team="B")
     p1.facing = 1; p2.facing = -1
 
     my_fighter    = p1 if i_am_p1 else p2
@@ -305,7 +320,8 @@ async def main():
     sync_thread.start()
 
     # -- Input state for my fighter --------------------------------------------
-    move_dir   = 0    # -1, 0, 1
+    move_dir   = 0    # -1, 0, 1 (mover or 2P)
+    face_dir   = 0    # -1, 0, 1 (attacker in 4P)
     want_jump  = False
     want_atk   = False
     want_block = False
@@ -348,14 +364,26 @@ async def main():
                 if game_over:
                     continue
 
-                if ev.key in (pygame.K_w, pygame.K_SPACE):
-                    want_jump = True
-                if ev.key == pygame.K_j:
-                    want_atk = True
-                if ev.key == pygame.K_e:
-                    want_pickup = True
-                if ev.key == pygame.K_k:
-                    want_block = True
+                if is_4p:
+                    if my_role == "mover":
+                        if ev.key in (pygame.K_w, pygame.K_SPACE):
+                            want_jump = True
+                        if ev.key == pygame.K_e:
+                            want_pickup = True
+                    elif my_role == "attacker":
+                        if ev.key == pygame.K_j:
+                            want_atk = True
+                        if ev.key == pygame.K_k:
+                            want_block = True
+                else:
+                    if ev.key in (pygame.K_w, pygame.K_SPACE):
+                        want_jump = True
+                    if ev.key == pygame.K_j:
+                        want_atk = True
+                    if ev.key == pygame.K_e:
+                        want_pickup = True
+                    if ev.key == pygame.K_k:
+                        want_block = True
 
             elif ev.type == pygame.KEYUP:
                 if ev.key == pygame.K_k:
@@ -364,63 +392,145 @@ async def main():
         # Continuous movement keys
         keys = pygame.key.get_pressed()
         move_dir = 0
+        face_dir = 0
         if not game_over:
-            if keys[pygame.K_a]: move_dir -= 1
-            if keys[pygame.K_d]: move_dir += 1
-            want_block = keys[pygame.K_k]
+            if is_4p:
+                if my_role == "mover":
+                    if keys[pygame.K_a]: move_dir -= 1
+                    if keys[pygame.K_d]: move_dir += 1
+                elif my_role == "attacker":
+                    if keys[pygame.K_a]: face_dir -= 1
+                    if keys[pygame.K_d]: face_dir += 1
+                    want_block = keys[pygame.K_k]
+            else:
+                if keys[pygame.K_a]: move_dir -= 1
+                if keys[pygame.K_d]: move_dir += 1
+                want_block = keys[pygame.K_k]
 
         # -- Apply local input to my fighter -----------------------------------
         if not game_over:
-            my_fighter.move(move_dir)
-            if want_jump:
-                my_fighter.jump()
-            if want_atk:
-                my_fighter.attack()
-            if want_block:
-                my_fighter.start_block()
+            if is_4p:
+                if my_role == "mover":
+                    my_fighter.move_input(move_dir)
+                    if want_jump:
+                        my_fighter.jump()
+                    if want_pickup:
+                        _handle_pickup(my_fighter, arena)
+                elif my_role == "attacker":
+                    my_fighter.face_input(face_dir)
+                    if want_atk:
+                        my_fighter.attack()
+                    if want_block:
+                        my_fighter.start_block()
+                    else:
+                        my_fighter.stop_block()
             else:
-                my_fighter.stop_block()
+                my_fighter.move(move_dir)
+                if want_jump:
+                    my_fighter.jump()
+                if want_atk:
+                    my_fighter.attack()
+                if want_block:
+                    my_fighter.start_block()
+                else:
+                    my_fighter.stop_block()
+                if want_pickup:
+                    _handle_pickup(my_fighter, arena)
 
         # -- Push my input to Firebase -----------------------------------------
         if frame_count % 2 == 0 and not game_over:
             inp_data = {
                 "ts": _time.time(),
                 "move": move_dir,
+                "face": face_dir,
                 "jump": want_jump,
                 "attack": want_atk,
                 "block": want_block,
                 "pickup": want_pickup,
+                "role": my_role,
                 "vx": my_fighter.vx,
                 "vy": my_fighter.vy,
             }
             slot = my_slot
             threading.Thread(target=db.push_input,
                              args=(room_code, slot, inp_data), daemon=True).start()
+        else:
+            inp_data = {
+                "ts": _time.time(),
+                "move": move_dir,
+                "face": face_dir,
+                "jump": want_jump,
+                "attack": want_atk,
+                "block": want_block,
+                "pickup": want_pickup,
+                "role": my_role,
+            }
 
         # -- HOST: read remote inputs + run game logic -------------------------
         if is_host:
-            # Apply remote player's input
             with _sync_lock:
                 ri = dict(_remote_input)
-            other_slot = None
-            for s in ri:
-                if s != my_slot:
-                    other_slot = s
-                    break
-            if other_slot and ri.get(other_slot) and isinstance(ri[other_slot], dict):
-                rd = ri[other_slot]
-                other_fighter.move(rd.get("move", 0))
-                if rd.get("jump"):   other_fighter.jump()
-                if rd.get("attack"): other_fighter.attack()
-                if rd.get("block"):  other_fighter.start_block()
-                else:                other_fighter.stop_block()
-                # Weapon pickup for remote player
-                if rd.get("pickup"):
-                    _handle_pickup(other_fighter, arena)
 
-            # Weapon pickup for host
-            if want_pickup:
-                _handle_pickup(my_fighter, arena)
+            if is_4p:
+                # Merge inputs for Team A & Team B
+                a_m = inp_data if my_slot == "a_left" else ri.get("a_left", {})
+                a_a = inp_data if my_slot == "a_right" else ri.get("a_right", {})
+                b_m = inp_data if my_slot == "b_left" else ri.get("b_left", {})
+                b_a = inp_data if my_slot == "b_right" else ri.get("b_right", {})
+
+                # Apply to Team A (p1)
+                if isinstance(a_m, dict):
+                    p1.move_input(a_m.get("move", 0))
+                    if a_m.get("jump"):   p1.jump()
+                    if a_m.get("pickup"): _handle_pickup(p1, arena)
+                if isinstance(a_a, dict):
+                    p1.face_input(a_a.get("face", 0))
+                    if a_a.get("attack"): p1.attack()
+                    if a_a.get("block"):  p1.start_block()
+                    else:                 p1.stop_block()
+
+                # Apply to Team B (p2)
+                if isinstance(b_m, dict):
+                    p2.move_input(b_m.get("move", 0))
+                    if b_m.get("jump"):   p2.jump()
+                    if b_m.get("pickup"): _handle_pickup(p2, arena)
+                if isinstance(b_a, dict):
+                    p2.face_input(b_a.get("face", 0))
+                    if b_a.get("attack"): p2.attack()
+                    if b_a.get("block"):  p2.start_block()
+                    else:                 p2.stop_block()
+
+                # Coordination check
+                if isinstance(a_m, dict) and isinstance(a_a, dict):
+                    am_dir = a_m.get("move", 0)
+                    aa_dir = a_a.get("face", 0)
+                    if am_dir != 0 and am_dir == aa_dir:
+                        p1.coord_bonus = 2.0
+                        p1.coord_glow = True
+
+                if isinstance(b_m, dict) and isinstance(b_a, dict):
+                    bm_dir = b_m.get("move", 0)
+                    ba_dir = b_a.get("face", 0)
+                    if bm_dir != 0 and bm_dir == ba_dir:
+                        p2.coord_bonus = 2.0
+                        p2.coord_glow = True
+
+            else:
+                # 2P Mode: Apply remote player's input
+                other_slot = None
+                for s in ri:
+                    if s != my_slot:
+                        other_slot = s
+                        break
+                if other_slot and ri.get(other_slot) and isinstance(ri[other_slot], dict):
+                    rd = ri[other_slot]
+                    other_fighter.move(rd.get("move", 0))
+                    if rd.get("jump"):   other_fighter.jump()
+                    if rd.get("attack"): other_fighter.attack()
+                    if rd.get("block"):  other_fighter.start_block()
+                    else:                other_fighter.stop_block()
+                    if rd.get("pickup"):
+                        _handle_pickup(other_fighter, arena)
 
             if not game_over:
                 # Physics update
@@ -441,21 +551,26 @@ async def main():
                             dy   = abs(atk.center_y - dfn.center_y)
                             if dist < info["range"] and dy < 70:
                                 direction = 1 if atk.x < dfn.x else -1
-                                dfn.take_damage(info["damage"], direction, info["knockback"])
-                                atk.damage_dealt += info["damage"]
+                                dmg = info["damage"]
+                                has_coord = is_4p and atk.coord_bonus > 0
+                                if has_coord:
+                                    dmg = max(1, int(dmg * 1.15))
+                                dfn.take_damage(dmg, direction, info["knockback"])
+                                atk.damage_dealt += dmg
                                 # Effects
                                 hx = int((atk.center_x + dfn.center_x) / 2)
                                 hy = int((atk.center_y + dfn.center_y) / 2)
-                                particles.emit_burst(hx, hy, (255, 200, 80), 8, 120, 3, 0.35)
+                                burst_col = (255, 215, 0) if has_coord else (255, 200, 80)
+                                particles.emit_burst(hx, hy, burst_col, 10 if has_coord else 8, 140 if has_coord else 120, 3, 0.35)
                                 if dfn.blocking:
                                     dmg_numbers.append(DamageNumber(0, dfn.center_x, dfn.y - 20,
                                                                      (100, 160, 255), False, "BLOCKED!"))
                                     particles.emit_sparks(hx, hy, (100, 160, 255), 5, 100)
                                 else:
-                                    dmg_numbers.append(DamageNumber(info["damage"], dfn.center_x,
-                                                                     dfn.y - 20, HP_R))
-                                    shake.trigger(6, 0.12)
-                                    hitstop.trigger(3)
+                                    dmg_numbers.append(DamageNumber(dmg, dfn.center_x,
+                                                                     dfn.y - 20, GOLD if has_coord else HP_R))
+                                    shake.trigger(8 if has_coord else 6, 0.14 if has_coord else 0.12)
+                                    hitstop.trigger(4 if has_coord else 3)
                                 # Damage crates in range
                                 for w in arena.walls:
                                     if not w.get("destructible") or w["hp"] <= 0:
@@ -463,14 +578,14 @@ async def main():
                                     wx_c = w["x"] + w["w"] / 2
                                     wy_c = w["y"] + w["h"] / 2
                                     if abs(atk.center_x - wx_c) < info["range"] and abs(atk.center_y - wy_c) < 60:
-                                        arena.damage_wall(w, info["damage"])
+                                        arena.damage_wall(w, dmg)
                                         particles.emit_sparks(int(wx_c), int(wy_c), (180, 140, 80), 4, 80)
                                 atk.attack_anim = 0.12  # prevent multi-hit
 
                         elif info.get("projectile"):
-                            # Bow: spawn arrow
+                            # Bow: spawn arrow with owner_team
                             arena.spawn_arrow(atk.center_x + atk.facing * 20,
-                                              atk.center_y, atk.facing, atk.player_id)
+                                              atk.center_y, atk.facing, atk.player_id, atk.team)
                             atk.attack_anim = 0.12
 
                 # -- Arrow hits ------------------------------------------------
@@ -488,12 +603,12 @@ async def main():
 
                 # -- Check win condition ---------------------------------------
                 if p1.hp <= 0:
-                    game_over = True; winner = "P2"
+                    game_over = True; winner = "TEAM B" if is_4p else "P2"
                     particles.emit_burst(int(p1.center_x), int(p1.center_y),
                                          (255, 100, 50), 30, 250, 5, 0.8, 100)
                     shake.trigger(15, 0.4)
                 elif p2.hp <= 0:
-                    game_over = True; winner = "P1"
+                    game_over = True; winner = "TEAM A" if is_4p else "P1"
                     particles.emit_burst(int(p2.center_x), int(p2.center_y),
                                          (255, 100, 50), 30, 250, 5, 0.8, 100)
                     shake.trigger(15, 0.4)
@@ -559,7 +674,8 @@ async def main():
         you_y  = int(my_fighter.y - 40 + cy + math.sin(game_time * 3) * 4)
         pygame.draw.polygon(screen, GOLD,
                             [(you_cx, you_y + 10), (you_cx - 7, you_y), (you_cx + 7, you_y)])
-        yt = gf("Segoe UI", 11, True).render("YOU", True, GOLD)
+        you_text = f"YOU ({my_role.upper()})" if is_4p else "YOU"
+        yt = gf("Segoe UI", 11, True).render(you_text, True, GOLD)
         screen.blit(yt, (you_cx - yt.get_width() // 2, you_y - 16))
 
         # Particles + damage numbers
@@ -569,25 +685,33 @@ async def main():
             d.draw(screen, fonts_cache, cx, cy)
 
         # -- HUD --------------------------------------------------------------
-        hud = pygame.Surface((W_WIDTH, 55), pygame.SRCALPHA)
+        hud = pygame.Surface((W_WIDTH, 62 if is_4p else 55), pygame.SRCALPHA)
         hud.fill((0, 0, 0, 180))
         screen.blit(hud, (0, 0))
 
         bar_w = 350
-        # P1 HP (left)
-        p1_lbl = gf("Segoe UI", 15, True).render(f"P1  {WEAPON_DEFS.get(p1.weapon, {}).get('name', 'Fists')}", True, P1_COL)
+        # P1 / Team A HP (left)
+        p1_title = "TEAM A" if is_4p else "P1"
+        p1_lbl = gf("Segoe UI", 15, True).render(f"{p1_title}  {WEAPON_DEFS.get(p1.weapon, {}).get('name', 'Fists')}", True, P1_COL)
         screen.blit(p1_lbl, (12, 4))
         draw_hp_bar(screen, 12, 24, bar_w, 18, max(0, p1.hp), 100, hp_color(max(0, p1.hp)))
         hp1_t = gf("Segoe UI", 12, True).render(f"{max(0, p1.hp)} HP", True, WHITE)
         screen.blit(hp1_t, (16, 26))
+        if is_4p and p1.coord_bonus > 0:
+            sync_a = gf("Segoe UI", 10, True).render(f"SYNC BOOST +15% ({p1.coord_bonus:.1f}s)", True, GOLD)
+            screen.blit(sync_a, (16, 44))
 
-        # P2 HP (right)
-        p2_lbl = gf("Segoe UI", 15, True).render(f"{WEAPON_DEFS.get(p2.weapon, {}).get('name', 'Fists')}  P2", True, P2_COL)
+        # P2 / Team B HP (right)
+        p2_title = "TEAM B" if is_4p else "P2"
+        p2_lbl = gf("Segoe UI", 15, True).render(f"{WEAPON_DEFS.get(p2.weapon, {}).get('name', 'Fists')}  {p2_title}", True, P2_COL)
         screen.blit(p2_lbl, (W_WIDTH - 12 - p2_lbl.get_width(), 4))
         draw_hp_bar(screen, W_WIDTH - 12 - bar_w, 24, bar_w, 18, max(0, p2.hp), 100,
                     hp_color(max(0, p2.hp)), right=True)
         hp2_t = gf("Segoe UI", 12, True).render(f"{max(0, p2.hp)} HP", True, WHITE)
         screen.blit(hp2_t, (W_WIDTH - 16 - hp2_t.get_width(), 26))
+        if is_4p and p2.coord_bonus > 0:
+            sync_b = gf("Segoe UI", 10, True).render(f"SYNC BOOST +15% ({p2.coord_bonus:.1f}s)", True, GOLD)
+            screen.blit(sync_b, (W_WIDTH - 16 - sync_b.get_width(), 44))
 
         # VS
         vs = gf("Segoe UI", 20, True).render("VS", True, GOLD)
@@ -604,10 +728,20 @@ async def main():
         # Controls hint (fades out)
         if ctrl_fade > 0:
             alpha = min(1.0, ctrl_fade)
-            lines = [
-                "A/D = Move    W/SPACE = Jump    J = Attack    K = Block (hold)    E = Pick up weapon",
-                f"Room: {room_code} | You are {my_id} | {'HOST' if is_host else 'CLIENT'}",
-            ]
+            if is_4p:
+                if my_role == "mover":
+                    c_line = "A/D = Move (Legs)    W/SPACE = Jump    E = Pickup Weapon    [Partner aims & attacks!]"
+                else:
+                    c_line = "A/D = Aim Face    J = Attack    K = Block (hold)    [Partner moves & jumps!]"
+                lines = [
+                    c_line,
+                    f"Room: {room_code} | {my_id} | {'HOST' if is_host else 'CLIENT'} | Both press same direction for +15% SYNC BOOST",
+                ]
+            else:
+                lines = [
+                    "A/D = Move    W/SPACE = Jump    J = Attack    K = Block (hold)    E = Pick up weapon",
+                    f"Room: {room_code} | You are {my_id} | {'HOST' if is_host else 'CLIENT'}",
+                ]
             for i, line in enumerate(lines):
                 lt = gf("Segoe UI", 12).render(line, True, GRAY)
                 lt.set_alpha(int(255 * alpha))
@@ -623,14 +757,16 @@ async def main():
             ov.fill((0, 0, 0, 180))
             screen.blit(ov, (0, 0))
 
-            wc = P1_COL if winner == "P1" else P2_COL
+            wc = P1_COL if (winner in ("P1", "TEAM A")) else P2_COL
             wt2 = gf("Segoe UI", 60, True).render(f"{winner} WINS!", True, wc)
             screen.blit(wt2, (W_WIDTH // 2 - wt2.get_width() // 2, W_HEIGHT // 2 - 80))
 
             # Stats
+            t1_name = "Team A" if is_4p else "P1"
+            t2_name = "Team B" if is_4p else "P2"
             stats_lines = [
-                f"P1 damage dealt: {p1.damage_dealt}     P2 damage dealt: {p2.damage_dealt}",
-                f"P1 final HP: {max(0, p1.hp)}     P2 final HP: {max(0, p2.hp)}",
+                f"{t1_name} damage dealt: {p1.damage_dealt}     {t2_name} damage dealt: {p2.damage_dealt}",
+                f"{t1_name} final HP: {max(0, p1.hp)}     {t2_name} final HP: {max(0, p2.hp)}",
             ]
             for i, sl in enumerate(stats_lines):
                 st = gf("Segoe UI", 16).render(sl, True, GRAY)

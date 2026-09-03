@@ -30,11 +30,12 @@ class Fighter:
     WIDTH  = 36
     HEIGHT = 80
 
-    def __init__(self, x: float, y: float, color: tuple, player_id: str):
+    def __init__(self, x: float, y: float, color: tuple, player_id: str, team="A"):
         self.x         = x
         self.y         = y
         self.color     = color
         self.player_id = player_id   # "P1" or "P2"
+        self.team      = team
 
         # Physics
         self.vx        = 0.0
@@ -59,6 +60,10 @@ class Fighter:
         # Stats
         self.damage_dealt    = 0
         self.kills           = 0
+
+        # Coordination (4P mode)
+        self.coord_bonus = 0.0    # seconds remaining of +15% damage
+        self.coord_glow  = False  # visual flag for gold glow
 
     # -- Properties ------------------------------------------------------------
     @property
@@ -85,6 +90,15 @@ class Fighter:
     def move(self, direction: int):
         """direction: -1 (left), 0 (stop), 1 (right)"""
         self.vx = direction * MOVE_SPEED
+        if direction != 0:
+            self.facing = direction
+
+    def move_input(self, direction: int):
+        """Mover role: set velocity WITHOUT changing facing direction."""
+        self.vx = direction * MOVE_SPEED
+
+    def face_input(self, direction: int):
+        """Attacker role: change facing direction WITHOUT moving."""
         if direction != 0:
             self.facing = direction
 
@@ -144,6 +158,9 @@ class Fighter:
                 self.is_attacking = False
         if self.hit_flash > 0:
             self.hit_flash = max(0, self.hit_flash - dt)
+        if self.coord_bonus > 0:
+            self.coord_bonus = max(0, self.coord_bonus - dt)
+            self.coord_glow = self.coord_bonus > 0
 
         # Knockback
         if self.kb_timer > 0:
@@ -219,6 +236,8 @@ class Fighter:
         self.hit_flash = 0; self.kb_vx = 0; self.kb_timer = 0
         self.on_ground = False
         self.damage_dealt = 0
+        self.coord_bonus = 0.0
+        self.coord_glow = False
 
     # -- Serialization (for Firebase) ------------------------------------------
     def to_dict(self) -> dict:
@@ -230,6 +249,8 @@ class Fighter:
             "attacking": self.is_attacking, "attack_anim": round(self.attack_anim, 3),
             "blocking": self.blocking, "hit_flash": round(self.hit_flash, 3),
             "damage_dealt": self.damage_dealt,
+            "team": self.team,
+            "coord_bonus": round(self.coord_bonus, 2),
         }
 
     def from_dict(self, d: dict):
@@ -247,3 +268,6 @@ class Fighter:
         self.blocking    = d.get("blocking", self.blocking)
         self.hit_flash   = d.get("hit_flash", self.hit_flash)
         self.damage_dealt = d.get("damage_dealt", self.damage_dealt)
+        self.team = d.get("team", self.team)
+        self.coord_bonus = d.get("coord_bonus", self.coord_bonus)
+        self.coord_glow = self.coord_bonus > 0

@@ -20,16 +20,27 @@ except Exception:
 
 # --- Screen IDs --------------------------------------------------------------
 S_HOME     = "home"
-S_CREATE   = "create"       # waiting room (host sees this after picking slot)
-S_JOIN     = "join"         # code entry
-S_SLOTS    = "slots"        # slot selection
-S_WAITING  = "waiting"      # non-host waiting for game to start
-S_ERROR    = "error"        # Firebase error / wrong code
+S_MODE     = "mode"          # 2P or 4P mode selection
+S_CREATE   = "create"        # waiting room (host sees this after picking slot)
+S_JOIN     = "join"          # code entry
+S_SLOTS    = "slots"         # slot selection
+S_WAITING  = "waiting"       # non-host waiting for game to start
+S_ERROR    = "error"         # Firebase error / wrong code
 
+# --- 2-Player slots ----------------------------------------------------------
 SLOT_KEYS  = ["a_left", "b_left"]
 SLOT_INFO  = {
     "a_left":  ("PLAYER 1", "Left side (Red)",   "P1"),
     "b_left":  ("PLAYER 2", "Right side (Blue)",  "P2"),
+}
+
+# --- 4-Player slots (2v2 split-control) --------------------------------------
+SLOT_KEYS_4P = ["a_left", "a_right", "b_left", "b_right"]
+SLOT_INFO_4P = {
+    "a_left":  ("TEAM A", "Mover (Movement + Pickup)",   "A-Mover"),
+    "a_right": ("TEAM A", "Attacker (Attack + Block)",    "A-Attacker"),
+    "b_left":  ("TEAM B", "Mover (Movement + Pickup)",   "B-Mover"),
+    "b_right": ("TEAM B", "Attacker (Attack + Block)",    "B-Attacker"),
 }
 
 # --- Colors ------------------------------------------------------------------
@@ -59,6 +70,8 @@ class LobbyScreen:
         self.W, self.H = width, height
         self.screen      = S_HOME
         self.sel         = 0           # home menu selection (0=create, 1=join)
+        self.mode_sel    = 0           # mode selection (0=2P, 1=4P)
+        self.game_mode   = "2p"       # "2p" or "4p"
         self.typing      = ""          # code entry input
         self.wrong_code  = False
         self.slot_cursor = 0
@@ -77,9 +90,10 @@ class LobbyScreen:
         self.room_code   = ""
         self.my_slot     = ""         # the slot this device claimed
         self.is_host     = False
-        self.live_slots  = {k: "" for k in SLOT_KEYS}  # polled from Firebase
+        self.live_slots  = {}         # polled from Firebase (rebuilt on mode set)
         self._poll_thread: threading.Thread | None = None
         self._polling    = False
+        self._reset_live_slots()
 
         # Result
         self.ready_to_start = False
@@ -94,6 +108,18 @@ class LobbyScreen:
 
         # Init Firebase in background
         self._init_firebase_async()
+
+    # -- Mode & Slot Helpers ---------------------------------------------------
+    @property
+    def active_slot_keys(self):
+        return SLOT_KEYS_4P if self.game_mode == "4p" else SLOT_KEYS
+
+    @property
+    def active_slot_info(self):
+        return SLOT_INFO_4P if self.game_mode == "4p" else SLOT_INFO
+
+    def _reset_live_slots(self):
+        self.live_slots = {k: "" for k in self.active_slot_keys}
 
     # -- Firebase init ---------------------------------------------------------
     def _init_firebase_async(self):
@@ -122,7 +148,7 @@ class LobbyScreen:
             try:
                 slots = self.db.get_slots(self.room_code)
                 if isinstance(slots, dict):
-                    self.live_slots = {k: slots.get(k, "") for k in SLOT_KEYS}
+                    self.live_slots = {k: slots.get(k, "") for k in self.active_slot_keys}
                 # Check if host has set status to "starting"
                 room = self.db.get_room(self.room_code)
                 if room and room.get("status") == "starting" and not self.is_host:
@@ -138,14 +164,14 @@ class LobbyScreen:
         for attempt in range(5):
             code = str(random.randint(1000, 9999))
             try:
-                if self.db.create_room(code, host_slot=self.my_slot):
+                if self.db.create_room(code, host_slot=self.my_slot, mode=self.game_mode):
                     self.room_code = code
                     self.loading   = False
                     self.loading_msg = ""
                     # Claim the host's slot
-                    self.db.claim_slot(code, self.my_slot,
-                                       SLOT_INFO[self.my_slot][2])
-                    self.live_slots[self.my_slot] = SLOT_INFO[self.my_slot][2]
+                    label = self.active_slot_info[self.my_slot][2]
+                    self.db.claim_slot(code, self.my_slot, label)
+                    self.live_slots[self.my_slot] = label
                     self._start_polling()
                     self.screen = S_CREATE
                     return
@@ -171,14 +197,15 @@ class LobbyScreen:
                 self.wrong_code = True
                 self.typing     = ""
                 return
-            # Room found -- go to slot selection
+            # Room found -- read room mode and configure slots
             self.room_code      = code
-            self.live_slots     = {k: room.get("slots", {}).get(k, "") for k in SLOT_KEYS}
+            self.game_mode      = room.get("mode", "2p")
+            self.live_slots     = {k: room.get("slots", {}).get(k, "") for k in self.active_slot_keys}
             self._start_polling()
             self.loading        = False
             self.wrong_code     = False
             # Move cursor to first empty slot
-            first = next((i for i, k in enumerate(SLOT_KEYS) if not self.live_slots[k]), 0)
+            first = next((i for i, k in enumerate(self.active_slot_keys) if not self.live_slots.get(k)), 0)
             self.slot_cursor = first
             self.screen = S_SLOTS
         except Exception as e:
@@ -189,7 +216,7 @@ class LobbyScreen:
     def _do_claim_slot(self, slot: str):
         self.loading     = True
         self.loading_msg = "Claiming slot..."
-        label = SLOT_INFO[slot][2]
+        label = self.active_slot_info[slot][2]
         try:
             ok = self.db.claim_slot(self.room_code, slot, label)
             if ok:
@@ -222,6 +249,7 @@ class LobbyScreen:
             return
         key = event.key
         if   self.screen == S_HOME:    self._ev_home(key)
+        elif self.screen == S_MODE:    self._ev_mode(key)
         elif self.screen == S_JOIN:    self._ev_join(key, event.unicode)
         elif self.screen == S_SLOTS:   self._ev_slots(key)
         elif self.screen == S_CREATE:  self._ev_create(key)
@@ -238,14 +266,26 @@ class LobbyScreen:
                                  "Edit config.json with your Firebase URL.")
                 return
             if self.sel == 0:
-                # Host: pick slot first, then create room
+                # Host: pick game mode first (2P vs 4P)
                 self.is_host     = True
-                self.slot_cursor = 0
-                self.screen      = S_SLOTS
+                self.mode_sel    = 0
+                self.screen      = S_MODE
             else:
-                self.screen  = S_JOIN
-                self.typing  = ""
-                self.wrong_code = False
+                self.is_host     = False
+                self.screen      = S_JOIN
+                self.typing      = ""
+                self.wrong_code  = False
+
+    def _ev_mode(self, key):
+        if key == pygame.K_ESCAPE:
+            self.screen = S_HOME
+        elif key in (pygame.K_UP, pygame.K_DOWN):
+            self.mode_sel = 1 - self.mode_sel
+        elif key in (pygame.K_RETURN, pygame.K_SPACE):
+            self.game_mode = "2p" if self.mode_sel == 0 else "4p"
+            self._reset_live_slots()
+            self.slot_cursor = 0
+            self.screen = S_SLOTS
 
     def _ev_join(self, key, ch):
         if key == pygame.K_ESCAPE:
@@ -259,13 +299,13 @@ class LobbyScreen:
 
     def _ev_slots(self, key):
         if key == pygame.K_ESCAPE:
-            self.screen = S_HOME if not self.room_code else (S_CREATE if self.is_host else S_WAITING)
+            self.screen = (S_MODE if self.is_host else S_HOME) if not self.room_code else (S_CREATE if self.is_host else S_WAITING)
         elif key == pygame.K_UP:
-            self.slot_cursor = (self.slot_cursor - 1) % len(SLOT_KEYS)
+            self.slot_cursor = (self.slot_cursor - 1) % len(self.active_slot_keys)
         elif key == pygame.K_DOWN:
-            self.slot_cursor = (self.slot_cursor + 1) % len(SLOT_KEYS)
+            self.slot_cursor = (self.slot_cursor + 1) % len(self.active_slot_keys)
         elif key == pygame.K_RETURN:
-            sk = SLOT_KEYS[self.slot_cursor]
+            sk = self.active_slot_keys[self.slot_cursor]
             if self.live_slots.get(sk):
                 return   # already taken
             if self.is_host and not self.room_code:
@@ -279,7 +319,11 @@ class LobbyScreen:
         if key == pygame.K_ESCAPE:
             self._stop_polling(); self.screen = S_HOME
         elif key in (pygame.K_RETURN, pygame.K_SPACE):
-            if any(self.live_slots.values()):
+            if self.game_mode == "4p":
+                can_start = sum(1 for v in self.live_slots.values() if v) >= 2
+            else:
+                can_start = any(self.live_slots.values())
+            if can_start:
                 self._launch(self._set_starting)
 
     def _ev_waiting(self, key):
@@ -304,12 +348,13 @@ class LobbyScreen:
     # -- Config export ---------------------------------------------------------
     def get_config(self) -> dict:
         team = "A" if self.my_slot.startswith("a") else "B"
-        role = "left" if self.my_slot.endswith("left") else "right"
+        role = "mover" if self.my_slot.endswith("left") else "attacker"
         return {
             "db":          self.db,
             "room_code":   self.room_code,
             "my_slot":     self.my_slot,
             "is_host":     self.is_host,
+            "game_mode":   self.game_mode,
             "perspective": team,
             "player_role": role,
             "slots":       dict(self.live_slots),
@@ -320,6 +365,7 @@ class LobbyScreen:
         surface.fill(DARK)
         self._draw_bg(surface)
         if   self.screen == S_HOME:    self._draw_home(surface)
+        elif self.screen == S_MODE:    self._draw_mode(surface)
         elif self.screen == S_CREATE:  self._draw_create(surface)
         elif self.screen == S_JOIN:    self._draw_join(surface)
         elif self.screen == S_SLOTS:   self._draw_slots(surface)
@@ -361,15 +407,15 @@ class LobbyScreen:
         s.blit(msg, (cx - msg.get_width() // 2, cy + 40))
 
     def _draw_home(self, s):
-        self._draw_title(s, "2v2 TEAM FIGHTING GAME")
+        self._draw_title(s, "MULTIPLAYER ARENA BRAWL")
         cx, cy = self.W // 2, self.H // 2
         if not self.fb_ok and not self.loading:
             warn = fnt("Segoe UI", 13).render(
                 "!  Firebase not connected -- edit config.json first", True, (255, 120, 50))
             s.blit(warn, (cx - warn.get_width() // 2, 115))
-        options = [("CREATE ROOM", "Host a game -- others join with your code"),
-                   ("JOIN ROOM",   "Enter a 4-digit code to join")]
-        bw, bh = 380, 80
+        options = [("CREATE ROOM", "Host a game -- choose 2P or 4P mode"),
+                   ("JOIN ROOM",   "Enter a 4-digit code to join an existing game")]
+        bw, bh = 420, 80
         for i, (lbl, desc) in enumerate(options):
             bx = cx - bw // 2
             by = cy - 60 + i * (bh + 22)
@@ -391,33 +437,73 @@ class LobbyScreen:
         hint = fnt("Segoe UI", 12).render("UP / DOWN = Navigate    ENTER = Select", True, DIM)
         s.blit(hint, (cx - hint.get_width() // 2, self.H - 30))
 
+    def _draw_mode(self, s):
+        self._draw_title(s, "SELECT MATCH TYPE")
+        cx, cy = self.W // 2, self.H // 2
+        options = [
+            ("2 PLAYERS (1v1 DUEL)",
+             "Classic 1v1 brawl: each player controls their own fighter fully."),
+            ("4 PLAYERS (2v2 TEAM CO-OP)",
+             "Split-Control: 2 players share 1 fighter! Mover controls legs, Attacker controls arms."),
+        ]
+        bw, bh = 540, 85
+        for i, (lbl, desc) in enumerate(options):
+            bx = cx - bw // 2
+            by = cy - 70 + i * (bh + 24)
+            sel = i == self.mode_sel
+            bg = pygame.Surface((bw, bh), pygame.SRCALPHA)
+            bg.fill(((60, 60, 100, 230) if sel else (35, 35, 60, 200)))
+            s.blit(bg, (bx, by))
+            border = GOLD if sel else DIM
+            pygame.draw.rect(s, border, (bx, by, bw, bh), 2 if sel else 1, border_radius=6)
+            if sel:
+                glow = pygame.Surface((bw + 20, bh + 20), pygame.SRCALPHA)
+                p = int(18 + 14 * math.sin(self.time * 4))
+                pygame.draw.rect(glow, (255, 215, 0, p), (0, 0, bw + 20, bh + 20), border_radius=8)
+                s.blit(glow, (bx - 10, by - 10))
+            lt = fnt("Segoe UI", 21, True).render(lbl, True, GOLD if sel else WHITE)
+            s.blit(lt, (cx - lt.get_width() // 2, by + 14))
+            dt = fnt("Segoe UI", 12).render(desc, True, GRAY)
+            s.blit(dt, (cx - dt.get_width() // 2, by + 48))
+        hint = fnt("Segoe UI", 12).render("UP / DOWN = Choose Mode    ENTER = Confirm    ESC = Back", True, DIM)
+        s.blit(hint, (cx - hint.get_width() // 2, self.H - 30))
+
     def _draw_create(self, s):
-        self._draw_title(s, "WAITING ROOM")
+        mode_tag = "4-PLAYER 2v2" if self.game_mode == "4p" else "2-PLAYER 1v1"
+        self._draw_title(s, f"WAITING ROOM ({mode_tag})")
         cx = self.W // 2
         # Code display
-        cb = pygame.Surface((300, 78), pygame.SRCALPHA); cb.fill((0, 0, 0, 160))
-        s.blit(cb, (cx - 150, 108))
-        pygame.draw.rect(s, GOLD, (cx - 150, 108, 300, 78), 2, border_radius=6)
-        cl = fnt("Segoe UI", 13).render("ROOM CODE -- Share with players:", True, GRAY)
-        s.blit(cl, (cx - cl.get_width() // 2, 114))
+        box_y = 95 if self.game_mode == "4p" else 108
+        cb = pygame.Surface((300, 68 if self.game_mode == "4p" else 78), pygame.SRCALPHA)
+        cb.fill((0, 0, 0, 160))
+        s.blit(cb, (cx - 150, box_y))
+        pygame.draw.rect(s, GOLD, (cx - 150, box_y, 300, 68 if self.game_mode == "4p" else 78), 2, border_radius=6)
+        cl = fnt("Segoe UI", 12).render("ROOM CODE -- Share with players:", True, GRAY)
+        s.blit(cl, (cx - cl.get_width() // 2, box_y + 6))
         pulse = 0.85 + 0.15 * math.sin(self.time * 3)
         cc = (int(255 * pulse), int(215 * pulse), 0)
-        ct = fnt("Consolas", 38, True).render(self.room_code, True, cc)
-        s.blit(ct, (cx - ct.get_width() // 2, 138))
+        ct = fnt("Consolas", 34 if self.game_mode == "4p" else 38, True).render(self.room_code, True, cc)
+        s.blit(ct, (cx - ct.get_width() // 2, box_y + 26))
         # Slots
-        self._draw_slot_grid(s, cx, 205, False)
+        grid_y = 175 if self.game_mode == "4p" else 205
+        self._draw_slot_grid(s, cx, grid_y, False)
         # Hints
-        for i, h in enumerate(["[SPACE / ENTER] = Start game when everyone is ready",
+        for i, h in enumerate(["[SPACE / ENTER] = Start game when ready",
                                 "[ESC] = Back to home"]):
             ht = fnt("Segoe UI", 12).render(h, True, DIM)
-            s.blit(ht, (cx - ht.get_width() // 2, self.H - 62 + i * 18))
+            s.blit(ht, (cx - ht.get_width() // 2, self.H - 56 + i * 16))
         # Start btn
-        can = any(self.live_slots.values())
+        if self.game_mode == "4p":
+            can = sum(1 for v in self.live_slots.values() if v) >= 2
+            wait_text = "Waiting for players (min 2)..."
+        else:
+            can = any(self.live_slots.values())
+            wait_text = "Waiting for players..."
         bc  = GOLD if can else DIM
-        bt  = fnt("Segoe UI", 18, True).render(
-            "PRESS SPACE TO START" if can else "Waiting for players...", True, bc)
+        bt  = fnt("Segoe UI", 17, True).render(
+            "PRESS SPACE TO START" if can else wait_text, True, bc)
         if not can or int(self.time * 2) % 2 == 0:
-            s.blit(bt, (cx - bt.get_width() // 2, self.H - 36))
+            s.blit(bt, (cx - bt.get_width() // 2, self.H - 32))
 
     def _draw_join(self, s):
         self._draw_title(s, "JOIN A ROOM")
@@ -447,41 +533,47 @@ class LobbyScreen:
             s.blit(ht, (cx - ht.get_width() // 2, by + bh + (34 if self.wrong_code else 16) + i * 20))
 
     def _draw_slots(self, s):
-        self._draw_title(s, "CHOOSE YOUR SLOT")
+        mode_tag = "4-PLAYER 2v2" if self.game_mode == "4p" else "2-PLAYER 1v1"
+        self._draw_title(s, f"CHOOSE YOUR SLOT ({mode_tag})")
         cx = self.W // 2
-        self._draw_slot_grid(s, cx, 135, True)
-        sk = SLOT_KEYS[self.slot_cursor]
+        grid_y = 120 if self.game_mode == "4p" else 135
+        self._draw_slot_grid(s, cx, grid_y, True)
+        sk = self.active_slot_keys[self.slot_cursor]
         taken = bool(self.live_slots.get(sk))
-        info = SLOT_INFO[sk]
+        info = self.active_slot_info[sk]
         status = "(taken)" if taken else "(press ENTER to claim)"
         st = fnt("Segoe UI", 13).render(
             f"Selected: {info[0]}  {info[1].strip()}  {status}", True, GOLD)
-        s.blit(st, (cx - st.get_width() // 2, self.H - 95))
+        s.blit(st, (cx - st.get_width() // 2, self.H - 85))
         for i, h in enumerate(["UP / DOWN = Move    ENTER = Claim slot",
                                 "ESC = Back"]):
             ht = fnt("Segoe UI", 12).render(h, True, DIM)
-            s.blit(ht, (cx - ht.get_width() // 2, self.H - 68 + i * 18))
+            s.blit(ht, (cx - ht.get_width() // 2, self.H - 60 + i * 18))
 
     def _draw_waiting(self, s):
-        self._draw_title(s, "WAITING FOR HOST TO START")
+        mode_tag = "4-PLAYER 2v2" if self.game_mode == "4p" else "2-PLAYER 1v1"
+        self._draw_title(s, f"WAITING FOR HOST ({mode_tag})")
         cx = self.W // 2
-        cb = pygame.Surface((300, 54), pygame.SRCALPHA); cb.fill((0, 0, 0, 150))
-        s.blit(cb, (cx - 150, 108))
-        pygame.draw.rect(s, GOLD, (cx - 150, 108, 300, 54), 2, border_radius=6)
-        cl = fnt("Segoe UI", 13).render("Room Code:", True, GRAY)
-        s.blit(cl, (cx - cl.get_width() // 2, 114))
-        ct = fnt("Consolas", 28, True).render(self.room_code, True, GOLD)
-        s.blit(ct, (cx - ct.get_width() // 2, 134))
+        box_y = 95 if self.game_mode == "4p" else 108
+        cb = pygame.Surface((300, 50), pygame.SRCALPHA); cb.fill((0, 0, 0, 150))
+        s.blit(cb, (cx - 150, box_y))
+        pygame.draw.rect(s, GOLD, (cx - 150, box_y, 300, 50), 2, border_radius=6)
+        cl = fnt("Segoe UI", 12).render("Room Code:", True, GRAY)
+        s.blit(cl, (cx - cl.get_width() // 2, box_y + 4))
+        ct = fnt("Consolas", 26, True).render(self.room_code, True, GOLD)
+        s.blit(ct, (cx - ct.get_width() // 2, box_y + 20))
         # Live slots
-        self._draw_slot_grid(s, cx, 185, False)
+        grid_y = 160 if self.game_mode == "4p" else 185
+        self._draw_slot_grid(s, cx, grid_y, False)
         # Spinner hint
         dots = "." * (int(self.time * 2) % 4)
-        wt = fnt("Segoe UI", 16, True).render(
-            f"Your slot: {SLOT_INFO[self.my_slot][0]} {SLOT_INFO[self.my_slot][1].strip()}", True, GOLD)
-        s.blit(wt, (cx - wt.get_width() // 2, self.H - 55))
-        hint = fnt("Segoe UI", 14).render(
+        info = self.active_slot_info.get(self.my_slot, ("PLAYER", "", ""))
+        wt = fnt("Segoe UI", 15, True).render(
+            f"Your slot: {info[0]} - {info[1].strip()}", True, GOLD)
+        s.blit(wt, (cx - wt.get_width() // 2, self.H - 52))
+        hint = fnt("Segoe UI", 13).render(
             f"Waiting for host to press SPACE{dots}", True, GRAY)
-        s.blit(hint, (cx - hint.get_width() // 2, self.H - 30))
+        s.blit(hint, (cx - hint.get_width() // 2, self.H - 28))
 
     def _draw_error(self, s):
         self._draw_title(s, "ERROR")
@@ -494,19 +586,24 @@ class LobbyScreen:
         s.blit(hint, (cx - hint.get_width() // 2, cy + 80))
 
     def _draw_slot_grid(self, s, cx, start_y, show_cursor):
-        sw, sh, gap = 500, 60, 10
+        is_4p = self.game_mode == "4p"
+        sw = 520 if is_4p else 500
+        sh = 48 if is_4p else 60
+        gap = 6 if is_4p else 10
         dy = start_y
         prev_team = None
-        for i, sk in enumerate(SLOT_KEYS):
-            team, side, _ = SLOT_INFO[sk]
+        for i, sk in enumerate(self.active_slot_keys):
+            team, side, _ = self.active_slot_info[sk]
             tc   = TA_C if team == "TEAM A" else TB_C
             sel  = show_cursor and i == self.slot_cursor
             taken = bool(self.live_slots.get(sk))
             if team != prev_team:
-                ht = fnt("Segoe UI", 14, True).render(team, True, tc)
+                ht = fnt("Segoe UI", 13 if is_4p else 14, True).render(team, True, tc)
                 s.blit(ht, (cx - sw // 2, dy))
-                pygame.draw.line(s, tc, (cx - sw // 2, dy + 19), (cx + sw // 2, dy + 19), 1)
-                dy += 26; prev_team = team
+                pygame.draw.line(s, tc, (cx - sw // 2, dy + (16 if is_4p else 19)),
+                                 (cx + sw // 2, dy + (16 if is_4p else 19)), 1)
+                dy += 22 if is_4p else 26
+                prev_team = team
             bx = cx - sw // 2
             bg_c = ((int(tc[0]*.22), int(tc[1]*.22), int(tc[2]*.22)) if taken else (26, 26, 46))
             bg = pygame.Surface((sw, sh), pygame.SRCALPHA)
@@ -518,17 +615,20 @@ class LobbyScreen:
                 p = int(22 + 18 * math.sin(self.time * 5))
                 pygame.draw.rect(g, (*tc, p), (0, 0, sw + 14, sh + 14), border_radius=7)
                 s.blit(g, (bx - 7, dy - 7))
-            rt = fnt("Segoe UI", 14, True).render(side.strip(), True, tc if taken else GRAY)
-            s.blit(rt, (bx + 14, dy + 10))
-            dt = fnt("Segoe UI", 11).render("Left-side controls" if "LEFT" in side else "Right-side controls", True, DIM)
-            s.blit(dt, (bx + 14, dy + 32))
-            bw2, bh2 = 90, 26
+            rt = fnt("Segoe UI", 13 if is_4p else 14, True).render(side.strip(), True, tc if taken else GRAY)
+            s.blit(rt, (bx + 14, dy + (6 if is_4p else 10)))
+            sub_lbl = "Controls: Movement (A/D), Jump (W), Pickup (E)" if "Mover" in side else (
+                      "Controls: Face (A/D), Attack (J), Block (K)" if "Attacker" in side else (
+                      "Left-side controls" if "LEFT" in side else "Right-side controls"))
+            dt = fnt("Segoe UI", 10 if is_4p else 11).render(sub_lbl, True, DIM)
+            s.blit(dt, (bx + 14, dy + (26 if is_4p else 32)))
+            bw2, bh2 = 90, 24 if is_4p else 26
             badgex = bx + sw - bw2 - 12; badgey = dy + (sh - bh2) // 2
             bdg = pygame.Surface((bw2, bh2), pygame.SRCALPHA)
             bdg.fill((*tc, 55) if taken else (40, 40, 60, 140)); s.blit(bdg, (badgex, badgey))
             pygame.draw.rect(s, tc if taken else DIM, (badgex, badgey, bw2, bh2), 1, border_radius=4)
             label = self.live_slots.get(sk) or "EMPTY"
-            bt = fnt("Segoe UI", 13, True).render(label, True, tc if taken else GRAY)
+            bt = fnt("Segoe UI", 12 if is_4p else 13, True).render(label, True, tc if taken else GRAY)
             s.blit(bt, (badgex + bw2 // 2 - bt.get_width() // 2, badgey + bh2 // 2 - bt.get_height() // 2))
             if sel:
                 pygame.draw.polygon(s, GOLD, [(bx + sw + 10, dy + sh // 2),

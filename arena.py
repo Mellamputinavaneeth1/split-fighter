@@ -156,12 +156,13 @@ class WeaponPickup:
 class Arrow:
     SPEED = 650.0
 
-    def __init__(self, x, y, direction, owner_id):
+    def __init__(self, x, y, direction, owner_id, owner_team="A"):
         self.x = x
         self.y = y
         self.vx = direction * self.SPEED
         self.direction = direction
         self.owner_id = owner_id
+        self.owner_team = owner_team
         self.alive = True
         self.damage = 12
         self.knockback = 80
@@ -180,7 +181,7 @@ class Arrow:
             self.alive = False
 
     def hits_fighter(self, fighter) -> bool:
-        if not self.alive or fighter.player_id == self.owner_id:
+        if not self.alive or fighter.player_id == self.owner_id or (hasattr(fighter, 'team') and fighter.team == self.owner_team):
             return False
         fx, fy, fw, fh = fighter.rect
         return (self.x > fx and self.x < fx + fw and
@@ -188,7 +189,7 @@ class Arrow:
 
     def to_dict(self):
         return {"x": round(self.x, 1), "y": round(self.y, 1),
-                "vx": round(self.vx, 1), "owner": self.owner_id}
+                "vx": round(self.vx, 1), "owner": self.owner_id, "team": self.owner_team}
 
     def draw(self, surface):
         if not self.alive:
@@ -230,8 +231,8 @@ class Arena:
             a.update(dt, self.walls + self.platforms)
         self.arrows[:] = [a for a in self.arrows if a.alive]
 
-    def spawn_arrow(self, x, y, direction, owner_id):
-        self.arrows.append(Arrow(x, y, direction, owner_id))
+    def spawn_arrow(self, x, y, direction, owner_id, owner_team="A"):
+        self.arrows.append(Arrow(x, y, direction, owner_id, owner_team))
 
     def get_collide_surfaces(self):
         """Return all surfaces fighters can stand on."""
