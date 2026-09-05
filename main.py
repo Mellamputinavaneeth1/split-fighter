@@ -22,7 +22,7 @@ from firebase_db import FirebaseDB
 W_WIDTH   = 1100
 W_HEIGHT  = 700
 FPS       = 60
-SYNC_RATE = 4     # push/pull Firebase every N frames (~15fps sync)
+SYNC_RATE = 2     # push/pull Firebase every N frames (~30fps sync)
 
 # --- Colors -------------------------------------------------------------------
 WHITE    = (255, 255, 255)
@@ -313,11 +313,20 @@ async def main():
                         _remote_state.update(gs)
             except Exception:
                 pass
-            _time.sleep(0.05)
+            _time.sleep(0.033)  # ~30fps polling for smoother interpolation
 
     sync_thread = threading.Thread(
         target=_host_sync_loop if is_host else _client_sync_loop, daemon=True)
     sync_thread.start()
+
+    # -- Client interpolation state --------------------------------------------
+    # Instead of snapping fighter positions from Firebase snapshots (which causes
+    # the opponent to appear laggy/stuttery), we store the target positions and
+    # smoothly interpolate towards them every frame at 60fps.
+    _interp_speed = 18.0  # lerp factor per second (higher = faster catch-up)
+    _p1_target = {"x": p1.x, "y": p1.y, "vx": p1.vx, "vy": p1.vy}
+    _p2_target = {"x": p2.x, "y": p2.y, "vx": p2.vx, "vy": p2.vy}
+    _last_gs_ts = 0.0  # timestamp of last received game state
 
     # -- Input state for my fighter --------------------------------------------
     move_dir   = 0    # -1, 0, 1 (mover or 2P)
@@ -626,15 +635,67 @@ async def main():
                     _remote_state.update(gs)
 
         else:
-            # -- CLIENT: apply remote game state -------------------------------
+            # -- CLIENT: apply remote game state with interpolation ------------
             with _sync_lock:
                 gs = dict(_remote_state)
             if gs:
-                p1.from_dict(gs.get("p1"))
-                p2.from_dict(gs.get("p2"))
+                gs_ts = gs.get("ts", 0)
+                new_snapshot = gs_ts > _last_gs_ts
+                if new_snapshot:
+                    _last_gs_ts = gs_ts
+
+                # Extract raw dicts from the snapshot
+                p1d = gs.get("p1") or {}
+                p2d = gs.get("p2") or {}
+
+                # Update interpolation targets (positions + velocities)
+                if new_snapshot:
+                    _p1_target["x"]  = p1d.get("x", _p1_target["x"])
+                    _p1_target["y"]  = p1d.get("y", _p1_target["y"])
+                    _p1_target["vx"] = p1d.get("vx", 0)
+                    _p1_target["vy"] = p1d.get("vy", 0)
+                    _p2_target["x"]  = p2d.get("x", _p2_target["x"])
+                    _p2_target["y"]  = p2d.get("y", _p2_target["y"])
+                    _p2_target["vx"] = p2d.get("vx", 0)
+                    _p2_target["vy"] = p2d.get("vy", 0)
+
+                # Apply discrete (non-position) state immediately
+                # -- these values look fine when snapped instantly --
+                for f, fd in [(p1, p1d), (p2, p2d)]:
+                    if fd:
+                        f.hp           = fd.get("hp", f.hp)
+                        f.weapon       = fd.get("weapon", f.weapon)
+                        f.facing       = fd.get("facing", f.facing)
+                        f.on_ground    = fd.get("on_ground", f.on_ground)
+                        f.is_attacking = fd.get("attacking", f.is_attacking)
+                        f.attack_anim  = fd.get("attack_anim", f.attack_anim)
+                        f.blocking     = fd.get("blocking", f.blocking)
+                        f.hit_flash    = fd.get("hit_flash", f.hit_flash)
+                        f.damage_dealt = fd.get("damage_dealt", f.damage_dealt)
+                        f.team         = fd.get("team", f.team)
+                        f.coord_bonus  = fd.get("coord_bonus", f.coord_bonus)
+                        f.coord_glow   = f.coord_bonus > 0
+
                 arena.from_dict(gs.get("arena"))
                 game_over = gs.get("game_over", False)
                 winner = gs.get("winner", "")
+
+            # Smoothly interpolate positions towards targets
+            t = min(1.0, _interp_speed * dt)  # lerp factor this frame
+            for f, tgt in [(p1, _p1_target), (p2, _p2_target)]:
+                # Predict target a little ahead using velocity for smoother feel
+                pred_x = tgt["x"] + tgt["vx"] * dt
+                pred_y = tgt["y"] + tgt["vy"] * dt
+                # Lerp towards predicted position
+                f.x += (pred_x - f.x) * t
+                f.y += (pred_y - f.y) * t
+                f.vx = tgt["vx"]
+                f.vy = tgt["vy"]
+                # If very close to target, snap to avoid floating point drift
+                if abs(f.x - tgt["x"]) < 0.5:
+                    f.x = tgt["x"]
+                if abs(f.y - tgt["y"]) < 0.5:
+                    f.y = tgt["y"]
 
             # Client still updates visuals
             arena.update(dt)
