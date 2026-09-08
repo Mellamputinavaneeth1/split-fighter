@@ -97,6 +97,7 @@ class LobbyScreen:
 
         # Result
         self.ready_to_start = False
+        self.is_ai_match    = False
 
         # Background particles
         self.particles = [
@@ -257,9 +258,19 @@ class LobbyScreen:
         elif self.screen == S_ERROR:   self._ev_error(key)
 
     def _ev_home(self, key):
-        if key == pygame.K_UP:   self.sel = (self.sel - 1) % 2
-        elif key == pygame.K_DOWN: self.sel = (self.sel + 1) % 2
+        if key == pygame.K_UP:     self.sel = (self.sel - 1) % 3
+        elif key == pygame.K_DOWN: self.sel = (self.sel + 1) % 3
         elif key in (pygame.K_RETURN, pygame.K_SPACE):
+            if self.sel == 2:
+                # Option 2: Single Player vs Minimax AI (100% offline)
+                self.is_host        = True
+                self.is_ai_match    = True
+                self.game_mode      = "2p"
+                self.my_slot        = "a_left"
+                self.live_slots     = {"a_left": "P1", "b_left": "BOT (AI)"}
+                self.ready_to_start = True
+                return
+
             if not self.fb_ok:
                 self.screen = S_ERROR
                 self.fb_error = ("Firebase not connected.\n"
@@ -268,10 +279,12 @@ class LobbyScreen:
             if self.sel == 0:
                 # Host: pick game mode first (2P vs 4P)
                 self.is_host     = True
+                self.is_ai_match = False
                 self.mode_sel    = 0
                 self.screen      = S_MODE
-            else:
+            elif self.sel == 1:
                 self.is_host     = False
+                self.is_ai_match = False
                 self.screen      = S_JOIN
                 self.typing      = ""
                 self.wrong_code  = False
@@ -354,6 +367,7 @@ class LobbyScreen:
             "room_code":   self.room_code,
             "my_slot":     self.my_slot,
             "is_host":     self.is_host,
+            "is_ai_match": getattr(self, "is_ai_match", False),
             "game_mode":   self.game_mode,
             "perspective": team,
             "player_role": role,
@@ -413,12 +427,15 @@ class LobbyScreen:
             warn = fnt("Segoe UI", 13).render(
                 "!  Firebase not connected -- edit config.json first", True, (255, 120, 50))
             s.blit(warn, (cx - warn.get_width() // 2, 115))
-        options = [("CREATE ROOM", "Host a game -- choose 2P or 4P mode"),
-                   ("JOIN ROOM",   "Enter a 4-digit code to join an existing game")]
-        bw, bh = 420, 80
+        options = [
+            ("CREATE ROOM", "Host multiplayer game -- 2P or 4P online"),
+            ("JOIN ROOM",   "Enter 4-digit room code to join online match"),
+            ("VS AI BOT",   "Single player offline brawl vs Minimax AI"),
+        ]
+        bw, bh = 460, 68
         for i, (lbl, desc) in enumerate(options):
             bx = cx - bw // 2
-            by = cy - 60 + i * (bh + 22)
+            by = cy - 80 + i * (bh + 16)
             sel = i == self.sel
             bg = pygame.Surface((bw, bh), pygame.SRCALPHA)
             bg.fill(((55, 55, 90, 220) if sel else (35, 35, 60, 200)))
@@ -430,10 +447,10 @@ class LobbyScreen:
                 p = int(18 + 14 * math.sin(self.time * 4))
                 pygame.draw.rect(glow, (255, 215, 0, p), (0, 0, bw + 20, bh + 20), border_radius=8)
                 s.blit(glow, (bx - 10, by - 10))
-            lt = fnt("Segoe UI", 22, True).render(lbl, True, GOLD if sel else WHITE)
-            s.blit(lt, (cx - lt.get_width() // 2, by + 12))
-            dt = fnt("Segoe UI", 13).render(desc, True, GRAY)
-            s.blit(dt, (cx - dt.get_width() // 2, by + 46))
+            lt = fnt("Segoe UI", 21, True).render(lbl, True, GOLD if sel else WHITE)
+            s.blit(lt, (cx - lt.get_width() // 2, by + 10))
+            dt = fnt("Segoe UI", 12).render(desc, True, GRAY)
+            s.blit(dt, (cx - dt.get_width() // 2, by + 40))
         hint = fnt("Segoe UI", 12).render("UP / DOWN = Navigate    ENTER = Select", True, DIM)
         s.blit(hint, (cx - hint.get_width() // 2, self.H - 30))
 

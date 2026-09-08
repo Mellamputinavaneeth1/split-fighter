@@ -17,6 +17,7 @@ from arena import Arena, Arrow, GROUND_Y
 from effects import ParticleSystem, ScreenShake, HitStop, DamageNumber
 from lobby import LobbyScreen
 from firebase_db import FirebaseDB
+from ai import AIAgent
 
 # --- Window -------------------------------------------------------------------
 W_WIDTH   = 1100
@@ -246,13 +247,16 @@ async def main():
     room_code = config["room_code"]
     my_slot   = config["my_slot"]
     is_host   = config["is_host"]
+    is_ai_match = config.get("is_ai_match", False)
     game_mode = config.get("game_mode", "2p")
     my_role   = config.get("player_role", "mover")
     my_team   = config.get("perspective", "A")
 
     is_4p   = game_mode == "4p"
     i_am_p1 = my_slot.startswith("a")
-    if is_4p:
+    if is_ai_match:
+        my_id = "P1 (YOU)"
+    elif is_4p:
         my_id = f"TEAM {my_team} ({my_role.upper()})"
     else:
         my_id = "P1" if i_am_p1 else "P2"
@@ -260,10 +264,13 @@ async def main():
     # -- Create game objects ---------------------------------------------------
     arena = Arena(W_WIDTH, W_HEIGHT)
     p1_name = "TEAM A" if is_4p else "P1"
-    p2_name = "TEAM B" if is_4p else "P2"
+    p2_name = "TEAM B" if is_4p else ("BOT (AI)" if is_ai_match else "P2")
     p1 = Fighter(80,  GROUND_Y - 100, P1_COL, p1_name, team="A")
     p2 = Fighter(980, GROUND_Y - 100, P2_COL, p2_name, team="B")
     p1.facing = 1; p2.facing = -1
+
+    # AI Agent for single-player practice (Exp 6, Exp 7, Exp 1, Exp 12)
+    ai_agent = AIAgent(depth=2, reaction_delay=0.10) if is_ai_match else None
 
     my_fighter    = p1 if i_am_p1 else p2
     other_fighter = p2 if i_am_p1 else p1
@@ -292,13 +299,14 @@ async def main():
             try:
                 with _sync_lock:
                     snap = dict(_remote_state)
-                if snap:
+                if snap and db:
                     db.push_game_state(room_code, snap)
-                inp = db.pull_inputs(room_code)
-                if isinstance(inp, dict):
-                    with _sync_lock:
-                        _remote_input.clear()
-                        _remote_input.update(inp)
+                if db:
+                    inp = db.pull_inputs(room_code)
+                    if isinstance(inp, dict):
+                        with _sync_lock:
+                            _remote_input.clear()
+                            _remote_input.update(inp)
             except Exception:
                 pass
             _time.sleep(0.05)
@@ -306,18 +314,21 @@ async def main():
     def _client_sync_loop():
         while _sync_running:
             try:
-                gs = db.pull_game_state(room_code)
-                if isinstance(gs, dict) and gs:
-                    with _sync_lock:
-                        _remote_state.clear()
-                        _remote_state.update(gs)
+                if db:
+                    gs = db.pull_game_state(room_code)
+                    if isinstance(gs, dict) and gs:
+                        with _sync_lock:
+                            _remote_state.clear()
+                            _remote_state.update(gs)
             except Exception:
                 pass
             _time.sleep(0.033)  # ~30fps polling for smoother interpolation
 
-    sync_thread = threading.Thread(
-        target=_host_sync_loop if is_host else _client_sync_loop, daemon=True)
-    sync_thread.start()
+    # Only start background networking threads if this is a multiplayer match
+    if not is_ai_match and db:
+        sync_thread = threading.Thread(
+            target=_host_sync_loop if is_host else _client_sync_loop, daemon=True)
+        sync_thread.start()
 
     # -- Client interpolation state --------------------------------------------
     # Instead of snapping fighter positions from Firebase snapshots (which causes
@@ -460,44 +471,53 @@ async def main():
                     _handle_pickup(my_fighter, arena)
 
         # -- Push my input to Firebase -----------------------------------------
-        if frame_count % 2 == 0 and not game_over:
-            inp_data = {
-                "ts": _time.time(),
-                "move": move_dir,
-                "face": face_dir,
-                "jump": want_jump,
-                "attack": want_atk,
-                "block": want_block,
-                "pickup": want_pickup,
-                "role": my_role,
-                "vx": my_fighter.vx,
-                "vy": my_fighter.vy,
-            }
-            # Clear latches now that the action has been captured in inp_data
+        if not is_ai_match and db:
+            if frame_count % 2 == 0 and not game_over:
+                inp_data = {
+                    "ts": _time.time(),
+                    "move": move_dir,
+                    "face": face_dir,
+                    "jump": want_jump,
+                    "attack": want_atk,
+                    "block": want_block,
+                    "pickup": want_pickup,
+                    "role": my_role,
+                    "vx": my_fighter.vx,
+                    "vy": my_fighter.vy,
+                }
+                # Clear latches now that the action has been captured in inp_data
+                _latched_jump = False
+                _latched_atk = False
+                _latched_pickup = False
+                slot = my_slot
+                threading.Thread(target=db.push_input,
+                                 args=(room_code, slot, inp_data), daemon=True).start()
+            else:
+                inp_data = {
+                    "ts": _time.time(),
+                    "move": move_dir,
+                    "face": face_dir,
+                    "jump": want_jump,
+                    "attack": want_atk,
+                    "block": want_block,
+                    "pickup": want_pickup,
+                    "role": my_role,
+                }
+        else:
             _latched_jump = False
             _latched_atk = False
             _latched_pickup = False
-            slot = my_slot
-            threading.Thread(target=db.push_input,
-                             args=(room_code, slot, inp_data), daemon=True).start()
-        else:
-            inp_data = {
-                "ts": _time.time(),
-                "move": move_dir,
-                "face": face_dir,
-                "jump": want_jump,
-                "attack": want_atk,
-                "block": want_block,
-                "pickup": want_pickup,
-                "role": my_role,
-            }
+            inp_data = {}
 
         # -- HOST: read remote inputs + run game logic -------------------------
         if is_host:
-            with _sync_lock:
-                ri = dict(_remote_input)
-
-            if is_4p:
+            if is_ai_match:
+                # 1v1 VS Minimax AI (Exp 6, Exp 7, Exp 1, Exp 12)
+                if not game_over and ai_agent:
+                    ai_agent.update(p2, p1, arena, dt)
+            elif is_4p:
+                with _sync_lock:
+                    ri = dict(_remote_input)
                 # Merge inputs for Team A & Team B
                 a_m = inp_data if my_slot == "a_left" else ri.get("a_left", {})
                 a_a = inp_data if my_slot == "a_right" else ri.get("a_right", {})
@@ -543,6 +563,8 @@ async def main():
 
             else:
                 # 2P Mode: Apply remote player's input
+                with _sync_lock:
+                    ri = dict(_remote_input)
                 other_slot = None
                 for s in ri:
                     if s != my_slot:
@@ -629,18 +651,18 @@ async def main():
 
                 # -- Check win condition ---------------------------------------
                 if p1.hp <= 0:
-                    game_over = True; winner = "TEAM B" if is_4p else "P2"
+                    game_over = True; winner = "TEAM B" if is_4p else ("BOT (AI)" if is_ai_match else "P2")
                     particles.emit_burst(int(p1.center_x), int(p1.center_y),
                                          (255, 100, 50), 30, 250, 5, 0.8, 100)
                     shake.trigger(15, 0.4)
                 elif p2.hp <= 0:
-                    game_over = True; winner = "TEAM A" if is_4p else "P1"
+                    game_over = True; winner = "TEAM A" if is_4p else ("YOU" if is_ai_match else "P1")
                     particles.emit_burst(int(p2.center_x), int(p2.center_y),
                                          (255, 100, 50), 30, 250, 5, 0.8, 100)
                     shake.trigger(15, 0.4)
 
             # Push game state to Firebase
-            if frame_count % SYNC_RATE == 0:
+            if not is_ai_match and db and frame_count % SYNC_RATE == 0:
                 gs = {
                     "ts": _time.time(),
                     "p1": p1.to_dict(), "p2": p2.to_dict(),
@@ -780,7 +802,7 @@ async def main():
             screen.blit(sync_a, (16, 44))
 
         # P2 / Team B HP (right)
-        p2_title = "TEAM B" if is_4p else "P2"
+        p2_title = "TEAM B" if is_4p else ("BOT (AI)" if is_ai_match else "P2")
         p2_lbl = gf("Segoe UI", 15, True).render(f"{WEAPON_DEFS.get(p2.weapon, {}).get('name', 'Fists')}  {p2_title}", True, P2_COL)
         screen.blit(p2_lbl, (W_WIDTH - 12 - p2_lbl.get_width(), 4))
         draw_hp_bar(screen, W_WIDTH - 12 - bar_w, 24, bar_w, 18, max(0, p2.hp), 100,
@@ -806,7 +828,12 @@ async def main():
         # Controls hint (fades out)
         if ctrl_fade > 0:
             alpha = min(1.0, ctrl_fade)
-            if is_4p:
+            if is_ai_match:
+                lines = [
+                    "A/D = Move    W/SPACE = Jump    J = Attack    K = Block (hold)    E = Pick up weapon",
+                    "PRACTICE ARENA: Playing against Minimax AI Bot with Alpha-Beta Pruning [Offline]",
+                ]
+            elif is_4p:
                 if my_role == "mover":
                     c_line = "A/D = Move (Legs)    W/SPACE = Jump    E = Pickup Weapon    [Partner aims & attacks!]"
                 else:
@@ -826,7 +853,8 @@ async def main():
                 screen.blit(lt, (W_WIDTH // 2 - lt.get_width() // 2, GROUND_Y + 55 + i * 18))
 
         # Footer
-        fps_t = gf("Segoe UI", 10).render(f"FPS:{int(clock.get_fps())}  Room:{room_code}", True, DIM)
+        fps_room = "OFFLINE AI" if is_ai_match else f"Room:{room_code}"
+        fps_t = gf("Segoe UI", 10).render(f"FPS:{int(clock.get_fps())}  {fps_room}", True, DIM)
         screen.blit(fps_t, (W_WIDTH - fps_t.get_width() - 8, W_HEIGHT - 14))
 
         # -- Game over overlay -------------------------------------------------
@@ -835,13 +863,13 @@ async def main():
             ov.fill((0, 0, 0, 180))
             screen.blit(ov, (0, 0))
 
-            wc = P1_COL if (winner in ("P1", "TEAM A")) else P2_COL
+            wc = P1_COL if (winner in ("P1", "TEAM A", "YOU")) else P2_COL
             wt2 = gf("Segoe UI", 60, True).render(f"{winner} WINS!", True, wc)
             screen.blit(wt2, (W_WIDTH // 2 - wt2.get_width() // 2, W_HEIGHT // 2 - 80))
 
             # Stats
-            t1_name = "Team A" if is_4p else "P1"
-            t2_name = "Team B" if is_4p else "P2"
+            t1_name = "Team A" if is_4p else ("You" if is_ai_match else "P1")
+            t2_name = "Team B" if is_4p else ("BOT (AI)" if is_ai_match else "P2")
             stats_lines = [
                 f"{t1_name} damage dealt: {p1.damage_dealt}     {t2_name} damage dealt: {p2.damage_dealt}",
                 f"{t1_name} final HP: {max(0, p1.hp)}     {t2_name} final HP: {max(0, p2.hp)}",
@@ -861,10 +889,11 @@ async def main():
         await asyncio.sleep(0)
 
     _sync_running = False
-    try:
-        db.set_status(room_code, "over")
-    except Exception:
-        pass
+    if not is_ai_match and db:
+        try:
+            db.set_status(room_code, "over")
+        except Exception:
+            pass
     pygame.quit()
     sys.exit()
 
