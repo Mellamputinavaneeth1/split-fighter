@@ -205,16 +205,78 @@ def draw_fighter(surface, f: Fighter, cam_x=0, cam_y=0):
         surface.blit(shield_s, (cx - 25, int(head_y) - 10))
 
 
-# --- HUD ---------------------------------------------------------------------
-def draw_hp_bar(surface, x, y, w, h, hp, max_hp, color, right=False):
+# --- HUD Rendering Helpers ----------------------------------------------------
+def draw_hp_bar(surface, x, y, w, h, hp, max_hp, color, ghost_hp=None, right=False):
+    """Modern arcade health bar with ghost damage trail and glossy highlight."""
+    # Outer dark container
+    pygame.draw.rect(surface, (16, 18, 28), (x, y, w, h), border_radius=6)
+    pygame.draw.rect(surface, (45, 50, 70), (x, y, w, h), 1, border_radius=6)
+
+    # Inner padding
+    ix, iy, iw, ih = x + 2, y + 2, w - 4, h - 4
+    if iw <= 0 or ih <= 0:
+        return
+
+    # Ghost damage bar (amber/dark-red trail catching up)
+    if ghost_hp is not None and ghost_hp > hp:
+        gratio = max(0.0, min(1.0, ghost_hp / max_hp))
+        gw = int(iw * gratio)
+        if gw > 0:
+            gx = ix + iw - gw if right else ix
+            pygame.draw.rect(surface, (200, 80, 50), (gx, iy, gw, ih), border_radius=4)
+
+    # Active health bar
     ratio = max(0.0, min(1.0, hp / max_hp))
-    pygame.draw.rect(surface, HP_BG, (x, y, w, h), border_radius=4)
-    fw = int(w * ratio)
-    if right:
-        pygame.draw.rect(surface, color, (x + w - fw, y, fw, h), border_radius=4)
-    else:
-        pygame.draw.rect(surface, color, (x, y, fw, h), border_radius=4)
-    pygame.draw.rect(surface, WHITE, (x, y, w, h), 1, border_radius=4)
+    fw = int(iw * ratio)
+    if fw > 0:
+        fx = ix + iw - fw if right else ix
+        pygame.draw.rect(surface, color, (fx, iy, fw, ih), border_radius=4)
+
+        # Glossy top highlight
+        hl_h = max(2, ih // 3)
+        hl_surf = pygame.Surface((fw, hl_h), pygame.SRCALPHA)
+        hl_surf.fill((255, 255, 255, 55))
+        surface.blit(hl_surf, (fx, iy))
+
+    # Outer crisp border
+    pygame.draw.rect(surface, (120, 130, 160), (x, y, w, h), 1, border_radius=6)
+
+
+def draw_weapon_badge(surface, x, y, weapon_key, is_right=False):
+    """Draws a compact rounded badge with weapon name and visual styling."""
+    wname = WEAPON_DEFS.get(weapon_key, {}).get("name", "Fists")
+    cols = {
+        "sword":  (160, 200, 240),
+        "axe":    (240, 140, 60),
+        "bow":    (150, 220, 130),
+        "shield": (100, 180, 240),
+        "fists":  (160, 160, 180),
+    }
+    col = cols.get(weapon_key, (200, 200, 200))
+    txt = gf("Segoe UI", 11, True).render(f"WEAPON: {wname.upper()}", True, col)
+    bw, bh = txt.get_width() + 16, 22
+    bx = x - bw if is_right else x
+
+    bg = pygame.Surface((bw, bh), pygame.SRCALPHA)
+    bg.fill((20, 22, 34, 210))
+    surface.blit(bg, (bx, y))
+    pygame.draw.rect(surface, (45, 50, 70), (bx, y, bw, bh), 1, border_radius=5)
+    surface.blit(txt, (bx + 8, y + 3))
+
+
+def draw_sync_badge(surface, x, y, bonus_time, is_right=False):
+    """Draws an animated glowing golden 2v2 sync boost badge."""
+    txt = gf("Segoe UI", 10, True).render(f"+15% SYNC BOOST ({bonus_time:.1f}s)", True, (255, 225, 60))
+    bw, bh = txt.get_width() + 16, 22
+    bx = x - bw if is_right else x
+
+    # Pulsing glow
+    pulse = int(120 + 70 * math.sin(_time.time() * 8))
+    bg = pygame.Surface((bw, bh), pygame.SRCALPHA)
+    bg.fill((255, 215, 0, 35))
+    surface.blit(bg, (bx, y))
+    pygame.draw.rect(surface, (255, 215, 0, pulse), (bx, y, bw, bh), 1, border_radius=5)
+    surface.blit(txt, (bx + 8, y + 3))
 
 
 # --- MAIN ---------------------------------------------------------------------
@@ -769,14 +831,23 @@ async def main():
         draw_fighter(screen, p1, cx, cy)
         draw_fighter(screen, p2, cx, cy)
 
-        # "YOU" arrow over my fighter
+        # "YOU" overhead pill badge
         you_cx = int(my_fighter.center_x + cx)
-        you_y  = int(my_fighter.y - 40 + cy + math.sin(game_time * 3) * 4)
+        you_y  = int(my_fighter.y - 42 + cy + math.sin(game_time * 3) * 3)
+        you_text = f"YOU ({my_role.upper()})" if is_4p else ("YOU" if not is_ai_match else "P1 (YOU)")
+        yt = gf("Segoe UI", 10, True).render(you_text, True, GOLD)
+        pw, ph = yt.get_width() + 16, 18
+        px, py = you_cx - pw // 2, you_y - 20
+
+        # Pill background & border
+        pill = pygame.Surface((pw, ph), pygame.SRCALPHA)
+        pill.fill((20, 22, 34, 210))
+        screen.blit(pill, (px, py))
+        pygame.draw.rect(screen, (255, 215, 0, 160), (px, py, pw, ph), 1, border_radius=9)
+        screen.blit(yt, (you_cx - yt.get_width() // 2, py + 2))
+        # Downward indicator arrow
         pygame.draw.polygon(screen, GOLD,
-                            [(you_cx, you_y + 10), (you_cx - 7, you_y), (you_cx + 7, you_y)])
-        you_text = f"YOU ({my_role.upper()})" if is_4p else "YOU"
-        yt = gf("Segoe UI", 11, True).render(you_text, True, GOLD)
-        screen.blit(yt, (you_cx - yt.get_width() // 2, you_y - 16))
+                            [(you_cx, you_y - 1), (you_cx - 5, you_y - 6), (you_cx + 5, you_y - 6)])
 
         # Particles + damage numbers
         particles.draw(screen, cx, cy)
@@ -784,106 +855,165 @@ async def main():
         for d in dmg_numbers:
             d.draw(screen, fonts_cache, cx, cy)
 
-        # -- HUD --------------------------------------------------------------
-        hud = pygame.Surface((W_WIDTH, 62 if is_4p else 55), pygame.SRCALPHA)
-        hud.fill((0, 0, 0, 180))
+        # -- MODERN HUD --------------------------------------------------------
+        hud_h = 76
+        hud = pygame.Surface((W_WIDTH, hud_h), pygame.SRCALPHA)
+        hud.fill((12, 14, 24, 215))
         screen.blit(hud, (0, 0))
+        pygame.draw.line(screen, (35, 42, 60), (0, hud_h), (W_WIDTH, hud_h), 1)
 
-        bar_w = 350
+        bar_w = 360
         # P1 / Team A HP (left)
-        p1_title = "TEAM A" if is_4p else "P1"
-        p1_lbl = gf("Segoe UI", 15, True).render(f"{p1_title}  {WEAPON_DEFS.get(p1.weapon, {}).get('name', 'Fists')}", True, P1_COL)
-        screen.blit(p1_lbl, (12, 4))
-        draw_hp_bar(screen, 12, 24, bar_w, 18, max(0, p1.hp), 100, hp_color(max(0, p1.hp)))
-        hp1_t = gf("Segoe UI", 12, True).render(f"{max(0, p1.hp)} HP", True, WHITE)
-        screen.blit(hp1_t, (16, 26))
+        p1_title = "TEAM A" if is_4p else ("YOU" if is_ai_match else "P1")
+        p1_lbl = gf("Segoe UI", 14, True).render(p1_title, True, P1_COL)
+        screen.blit(p1_lbl, (16, 6))
+
+        # Health bar with ghost damage catch-up
+        draw_hp_bar(screen, 16, 26, bar_w, 20, max(0, p1.hp), 100,
+                    hp_color(max(0, p1.hp)), ghost_hp=getattr(p1, "ghost_hp", None))
+        hp1_t = gf("Segoe UI", 11, True).render(f"{max(0, p1.hp)} / 100 HP", True, WHITE)
+        screen.blit(hp1_t, (22, 28))
+
+        # Weapon badge below HP bar
+        draw_weapon_badge(screen, 16, 50, p1.weapon)
         if is_4p and p1.coord_bonus > 0:
-            sync_a = gf("Segoe UI", 10, True).render(f"SYNC BOOST +15% ({p1.coord_bonus:.1f}s)", True, GOLD)
-            screen.blit(sync_a, (16, 44))
+            draw_sync_badge(screen, 16 + 145, 50, p1.coord_bonus)
 
         # P2 / Team B HP (right)
         p2_title = "TEAM B" if is_4p else ("BOT (AI)" if is_ai_match else "P2")
-        p2_lbl = gf("Segoe UI", 15, True).render(f"{WEAPON_DEFS.get(p2.weapon, {}).get('name', 'Fists')}  {p2_title}", True, P2_COL)
-        screen.blit(p2_lbl, (W_WIDTH - 12 - p2_lbl.get_width(), 4))
-        draw_hp_bar(screen, W_WIDTH - 12 - bar_w, 24, bar_w, 18, max(0, p2.hp), 100,
-                    hp_color(max(0, p2.hp)), right=True)
-        hp2_t = gf("Segoe UI", 12, True).render(f"{max(0, p2.hp)} HP", True, WHITE)
-        screen.blit(hp2_t, (W_WIDTH - 16 - hp2_t.get_width(), 26))
-        if is_4p and p2.coord_bonus > 0:
-            sync_b = gf("Segoe UI", 10, True).render(f"SYNC BOOST +15% ({p2.coord_bonus:.1f}s)", True, GOLD)
-            screen.blit(sync_b, (W_WIDTH - 16 - sync_b.get_width(), 44))
+        p2_lbl = gf("Segoe UI", 14, True).render(p2_title, True, P2_COL)
+        screen.blit(p2_lbl, (W_WIDTH - 16 - p2_lbl.get_width(), 6))
 
-        # VS
-        vs = gf("Segoe UI", 20, True).render("VS", True, GOLD)
-        screen.blit(vs, (W_WIDTH // 2 - vs.get_width() // 2, 12))
+        # Health bar with ghost damage catch-up (right aligned)
+        draw_hp_bar(screen, W_WIDTH - 16 - bar_w, 26, bar_w, 20, max(0, p2.hp), 100,
+                    hp_color(max(0, p2.hp)), ghost_hp=getattr(p2, "ghost_hp", None), right=True)
+        hp2_t = gf("Segoe UI", 11, True).render(f"{max(0, p2.hp)} / 100 HP", True, WHITE)
+        screen.blit(hp2_t, (W_WIDTH - 22 - hp2_t.get_width(), 28))
+
+        # Weapon badge below HP bar (right)
+        draw_weapon_badge(screen, W_WIDTH - 16, 50, p2.weapon, is_right=True)
+        if is_4p and p2.coord_bonus > 0:
+            draw_sync_badge(screen, W_WIDTH - 16 - 145, 50, p2.coord_bonus, is_right=True)
+
+        # CENTER: Stylized VS badge
+        vs_box = pygame.Surface((38, 38), pygame.SRCALPHA)
+        vs_box.fill((22, 25, 40, 230))
+        screen.blit(vs_box, (W_WIDTH // 2 - 19, 14))
+        pygame.draw.rect(screen, (255, 215, 0, 180), (W_WIDTH // 2 - 19, 14, 38, 38), 1, border_radius=8)
+        vs = gf("Segoe UI", 15, True).render("VS", True, GOLD)
+        screen.blit(vs, (W_WIDTH // 2 - vs.get_width() // 2, 23))
 
         # Weapon pickup hint
         if pickup_hint:
-            ht = gf("Segoe UI", 16, True).render(pickup_hint, True, GOLD)
-            bg2 = pygame.Surface((ht.get_width() + 20, ht.get_height() + 10), pygame.SRCALPHA)
-            bg2.fill((0, 0, 0, 160))
-            screen.blit(bg2, (W_WIDTH // 2 - bg2.get_width() // 2, GROUND_Y + 25))
-            screen.blit(ht, (W_WIDTH // 2 - ht.get_width() // 2, GROUND_Y + 30))
+            ht = gf("Segoe UI", 14, True).render(pickup_hint, True, GOLD)
+            bg2 = pygame.Surface((ht.get_width() + 24, ht.get_height() + 12), pygame.SRCALPHA)
+            bg2.fill((16, 18, 28, 220))
+            screen.blit(bg2, (W_WIDTH // 2 - bg2.get_width() // 2, GROUND_Y + 22))
+            pygame.draw.rect(screen, GOLD, (W_WIDTH // 2 - bg2.get_width() // 2, GROUND_Y + 22, bg2.get_width(), bg2.get_height()), 1, border_radius=6)
+            screen.blit(ht, (W_WIDTH // 2 - ht.get_width() // 2, GROUND_Y + 27))
 
-        # Controls hint (fades out)
-        if ctrl_fade > 0:
-            alpha = min(1.0, ctrl_fade)
-            if is_ai_match:
-                lines = [
-                    "A/D = Move    W/SPACE = Jump    J = Attack    K = Block (hold)    E = Pick up weapon",
-                    "PRACTICE ARENA: Playing against Minimax AI Bot with Alpha-Beta Pruning [Offline]",
-                ]
-            elif is_4p:
-                if my_role == "mover":
-                    c_line = "A/D = Move (Legs)    W/SPACE = Jump    E = Pickup Weapon    [Partner aims & attacks!]"
-                else:
-                    c_line = "A/D = Aim Face    J = Attack    K = Block (hold)    [Partner moves & jumps!]"
-                lines = [
-                    c_line,
-                    f"Room: {room_code} | {my_id} | {'HOST' if is_host else 'CLIENT'} | Both press same direction for +15% SYNC BOOST",
-                ]
+        # Bottom Controls Toolbar
+        bar_w2, bar_h2 = W_WIDTH - 60, 34
+        bar_x2 = 30
+        bar_y2 = W_HEIGHT - bar_h2 - 8
+
+        btoolbar = pygame.Surface((bar_w2, bar_h2), pygame.SRCALPHA)
+        btoolbar.fill((16, 18, 28, 215))
+        screen.blit(btoolbar, (bar_x2, bar_y2))
+        pygame.draw.rect(screen, (40, 48, 68), (bar_x2, bar_y2, bar_w2, bar_h2), 1, border_radius=8)
+
+        if is_ai_match:
+            ctrl_text = "A/D = Move    W/SPACE = Jump    J = Attack    K = Guard (hold)    E = Pickup"
+            mode_text = "PRACTICE VS MINIMAX BOT (Offline)"
+        elif is_4p:
+            if my_role == "mover":
+                ctrl_text = "A/D = Move (Legs)    W/SPACE = Jump    E = Pickup    [Partner attacks & guards]"
             else:
-                lines = [
-                    "A/D = Move    W/SPACE = Jump    J = Attack    K = Block (hold)    E = Pick up weapon",
-                    f"Room: {room_code} | You are {my_id} | {'HOST' if is_host else 'CLIENT'}",
-                ]
-            for i, line in enumerate(lines):
-                lt = gf("Segoe UI", 12).render(line, True, GRAY)
-                lt.set_alpha(int(255 * alpha))
-                screen.blit(lt, (W_WIDTH // 2 - lt.get_width() // 2, GROUND_Y + 55 + i * 18))
+                ctrl_text = "A/D = Aim Face    J = Attack    K = Guard (hold)    [Partner moves & jumps]"
+            mode_text = f"2v2 TEAM • Room:{room_code}"
+        else:
+            ctrl_text = "A/D = Move    W/SPACE = Jump    J = Attack    K = Guard (hold)    E = Pickup"
+            mode_text = f"1v1 DUEL • Room:{room_code}"
 
-        # Footer
-        fps_room = "OFFLINE AI" if is_ai_match else f"Room:{room_code}"
-        fps_t = gf("Segoe UI", 10).render(f"FPS:{int(clock.get_fps())}  {fps_room}", True, DIM)
-        screen.blit(fps_t, (W_WIDTH - fps_t.get_width() - 8, W_HEIGHT - 14))
+        ct = gf("Segoe UI", 11).render(ctrl_text, True, (180, 190, 210))
+        screen.blit(ct, (bar_x2 + 14, bar_y2 + 8))
 
-        # -- Game over overlay -------------------------------------------------
+        status_t = gf("Segoe UI", 10, True).render(f"{mode_text}  •  {int(clock.get_fps())} FPS", True, (100, 210, 140))
+        screen.blit(status_t, (bar_x2 + bar_w2 - status_t.get_width() - 14, bar_y2 + 9))
+
+        # -- MODERN VICTORY / GAME OVER CARD -----------------------------------
         if game_over:
             ov = pygame.Surface((W_WIDTH, W_HEIGHT), pygame.SRCALPHA)
-            ov.fill((0, 0, 0, 180))
+            ov.fill((8, 10, 18, 210))
             screen.blit(ov, (0, 0))
 
-            wc = P1_COL if (winner in ("P1", "TEAM A", "YOU")) else P2_COL
-            wt2 = gf("Segoe UI", 60, True).render(f"{winner} WINS!", True, wc)
-            screen.blit(wt2, (W_WIDTH // 2 - wt2.get_width() // 2, W_HEIGHT // 2 - 80))
+            card_w, card_h = 580, 350
+            cx2, cy2 = (W_WIDTH - card_w) // 2, (W_HEIGHT - card_h) // 2
 
-            # Stats
+            # Glass card surface
+            card = pygame.Surface((card_w, card_h), pygame.SRCALPHA)
+            card.fill((18, 20, 32, 245))
+            screen.blit(card, (cx2, cy2))
+
+            wc = P1_COL if (winner in ("P1", "TEAM A", "YOU")) else P2_COL
+            pygame.draw.rect(screen, wc, (cx2, cy2, card_w, card_h), 2, border_radius=16)
+
+            # Top badge
+            top_b = gf("Segoe UI", 11, True).render("MATCH COMPLETED", True, GOLD)
+            screen.blit(top_b, (W_WIDTH // 2 - top_b.get_width() // 2, cy2 + 22))
+
+            # Winner title
+            wt2 = gf("Segoe UI", 48, True).render(f"{winner} WINS!", True, wc)
+            screen.blit(wt2, (W_WIDTH // 2 - wt2.get_width() // 2, cy2 + 45))
+
+            sub_t = gf("Segoe UI", 12).render("Competitive Match Evaluation", True, GRAY)
+            screen.blit(sub_t, (W_WIDTH // 2 - sub_t.get_width() // 2, cy2 + 105))
+
+            # 4-Card Comparative Stats Grid
             t1_name = "Team A" if is_4p else ("You" if is_ai_match else "P1")
             t2_name = "Team B" if is_4p else ("BOT (AI)" if is_ai_match else "P2")
-            stats_lines = [
-                f"{t1_name} damage dealt: {p1.damage_dealt}     {t2_name} damage dealt: {p2.damage_dealt}",
-                f"{t1_name} final HP: {max(0, p1.hp)}     {t2_name} final HP: {max(0, p2.hp)}",
-            ]
-            for i, sl in enumerate(stats_lines):
-                st = gf("Segoe UI", 16).render(sl, True, GRAY)
-                screen.blit(st, (W_WIDTH // 2 - st.get_width() // 2, W_HEIGHT // 2 + 20 + i * 28))
 
-            if is_host and int(game_time * 2) % 2 == 0:
-                rt = gf("Segoe UI", 18, True).render("Press ENTER to play again", True, GOLD)
-                screen.blit(rt, (W_WIDTH // 2 - rt.get_width() // 2, W_HEIGHT // 2 + 100))
+            stats_boxes = [
+                (f"{t1_name} Damage", f"{p1.damage_dealt} DMG", P1_COL),
+                (f"{t2_name} Damage", f"{p2.damage_dealt} DMG", P2_COL),
+                (f"{t1_name} Remaining HP", f"{max(0, p1.hp)} HP", P1_COL),
+                (f"{t2_name} Remaining HP", f"{max(0, p2.hp)} HP", P2_COL),
+            ]
+
+            bw3, bh3 = 240, 50
+            for i, (stitle, sval, scol) in enumerate(stats_boxes):
+                col_i = i % 2
+                row_i = i // 2
+                bx3 = cx2 + 35 + col_i * (bw3 + 30)
+                by3 = cy2 + 135 + row_i * (bh3 + 12)
+
+                sbox = pygame.Surface((bw3, bh3), pygame.SRCALPHA)
+                sbox.fill((12, 14, 22, 200))
+                screen.blit(sbox, (bx3, by3))
+                pygame.draw.rect(screen, (38, 44, 62), (bx3, by3, bw3, bh3), 1, border_radius=8)
+
+                stitle_t = gf("Segoe UI", 10).render(stitle, True, GRAY)
+                screen.blit(stitle_t, (bx3 + 12, by3 + 8))
+                sval_t = gf("Segoe UI", 16, True).render(sval, True, scol)
+                screen.blit(sval_t, (bx3 + 12, by3 + 24))
+
+            # Glowing Action Button
+            if is_host:
+                pulse_btn = int(180 + 75 * math.sin(game_time * 6))
+                btn_w, btn_h = 320, 44
+                btn_x = W_WIDTH // 2 - btn_w // 2
+                btn_y = cy2 + card_h - btn_h - 25
+
+                btn_s = pygame.Surface((btn_w, btn_h), pygame.SRCALPHA)
+                btn_s.fill((255, 215, 0, 30))
+                screen.blit(btn_s, (btn_x, btn_y))
+                pygame.draw.rect(screen, (255, 215, 0, pulse_btn), (btn_x, btn_y, btn_w, btn_h), 2, border_radius=10)
+
+                rt = gf("Segoe UI", 15, True).render("PRESS ENTER TO PLAY AGAIN", True, GOLD)
+                screen.blit(rt, (W_WIDTH // 2 - rt.get_width() // 2, btn_y + 12))
             elif not is_host:
-                wt3 = gf("Segoe UI", 14).render("Waiting for host to restart...", True, GRAY)
-                screen.blit(wt3, (W_WIDTH // 2 - wt3.get_width() // 2, W_HEIGHT // 2 + 100))
+                wt3 = gf("Segoe UI", 13).render("Waiting for host to restart match...", True, GRAY)
+                screen.blit(wt3, (W_WIDTH // 2 - wt3.get_width() // 2, cy2 + card_h - 40))
 
         pygame.display.flip()
         await asyncio.sleep(0)

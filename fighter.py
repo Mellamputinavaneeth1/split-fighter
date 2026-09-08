@@ -46,6 +46,7 @@ class Fighter:
         # Combat
         self.hp              = 100
         self.max_hp          = 100
+        self.ghost_hp        = 100.0      # delayed HP bar catch-up for visual impact
         self.weapon          = "fists"    # current weapon key
         self.attack_timer    = 0.0        # cooldown remaining
         self.is_attacking    = False      # True during attack animation
@@ -162,6 +163,12 @@ class Fighter:
             self.coord_bonus = max(0, self.coord_bonus - dt)
             self.coord_glow = self.coord_bonus > 0
 
+        # Ghost HP catch-up (visual damage trail)
+        if self.ghost_hp > self.hp:
+            self.ghost_hp = max(float(self.hp), self.ghost_hp - max(20.0, (self.ghost_hp - self.hp) * 4.5) * dt)
+        elif self.ghost_hp < self.hp:
+            self.ghost_hp = float(self.hp)
+
         # Knockback
         if self.kb_timer > 0:
             self.kb_timer -= dt
@@ -230,6 +237,7 @@ class Fighter:
         self.x = x; self.y = y
         self.vx = 0; self.vy = 0
         self.hp = self.max_hp
+        self.ghost_hp = float(self.max_hp)
         self.weapon = "fists"
         self.attack_timer = 0; self.is_attacking = False
         self.attack_anim = 0; self.blocking = False
@@ -244,7 +252,8 @@ class Fighter:
         return {
             "x": round(self.x, 1), "y": round(self.y, 1),
             "vx": round(self.vx, 1), "vy": round(self.vy, 1),
-            "hp": self.hp, "weapon": self.weapon,
+            "hp": self.hp, "ghost_hp": round(self.ghost_hp, 1),
+            "weapon": self.weapon,
             "facing": self.facing, "on_ground": self.on_ground,
             "attacking": self.is_attacking, "attack_anim": round(self.attack_anim, 3),
             "blocking": self.blocking, "hit_flash": round(self.hit_flash, 3),
@@ -260,6 +269,7 @@ class Fighter:
         self.vx          = d.get("vx", self.vx)
         self.vy          = d.get("vy", self.vy)
         self.hp          = d.get("hp", self.hp)
+        self.ghost_hp    = d.get("ghost_hp", float(self.hp))
         self.weapon      = d.get("weapon", self.weapon)
         self.facing      = d.get("facing", self.facing)
         self.on_ground   = d.get("on_ground", self.on_ground)
