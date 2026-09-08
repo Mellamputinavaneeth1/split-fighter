@@ -57,7 +57,7 @@ def hp_color(hp):
     return HP_R
 
 
-# --- Stick figure drawing -----------------------------------------------------
+# --- Character & Bot Drawing --------------------------------------------------
 def draw_fighter(surface, f: Fighter, cam_x=0, cam_y=0):
     cx = int(f.center_x + cam_x)
     by = int(f.y + cam_y)
@@ -70,27 +70,100 @@ def draw_fighter(surface, f: Fighter, cam_x=0, cam_y=0):
     neck_y = head_y + head_r
     hip_y  = neck_y + 35
 
+    is_bot = "BOT" in getattr(f, 'player_id', '') or "AI" in getattr(f, 'player_id', '')
+
     # Coordination boost aura (4P mode)
     if getattr(f, 'coord_glow', False):
-        aura = pygame.Surface((80, 110), pygame.SRCALPHA)
-        pygame.draw.ellipse(aura, (255, 215, 0, 50), (0, 0, 80, 110))
-        pygame.draw.ellipse(aura, (255, 230, 120, 100), (4, 4, 72, 102), 2)
-        surface.blit(aura, (cx - 40, int(head_y - 18)))
+        aura = pygame.Surface((84, 115), pygame.SRCALPHA)
+        p_aura = int(45 + 30 * math.sin(_time.time() * 6))
+        pygame.draw.ellipse(aura, (255, 215, 0, p_aura), (0, 0, 84, 115))
+        pygame.draw.ellipse(aura, (255, 235, 130, p_aura + 40), (4, 4, 76, 107), 2)
+        surface.blit(aura, (cx - 42, int(head_y - 20)))
 
-    # Head
-    pygame.draw.circle(surface, body, (cx, int(head_y)), head_r)
-    pygame.draw.circle(surface, WHITE, (cx, int(head_y)), head_r, 2)
-    # Eyes
-    for ox in (-4, 4):
-        pygame.draw.circle(surface, WHITE, (cx + d * 4 + ox, int(head_y) - 2), 3)
-        pygame.draw.circle(surface, BLACK, (cx + d * 4 + ox + d, int(head_y) - 2), 1)
+    # --- HEAD & TORSO DRAWING ---
+    if is_bot:
+        # === TITAN-X CYBER ROBOT MODEL ===
+        head_w, head_h = 24, 22
+        hx, hy = cx - head_w // 2, int(head_y) - head_h // 2
 
-    # Torso
-    pygame.draw.line(surface, WHITE, (cx, int(neck_y)), (cx, int(hip_y)), 4)
+        # Antenna with pulsing blue LED tip
+        ant_top = hy - 9
+        pygame.draw.line(surface, (56, 189, 248), (cx, hy), (cx, ant_top), 2)
+        led_p = int(160 + 80 * math.sin(_time.time() * 10))
+        pygame.draw.circle(surface, (56, 189, 248), (cx, ant_top), 3)
+        pygame.draw.circle(surface, (255, 255, 255), (cx, ant_top), 1)
+
+        # Metallic angular chassis head
+        pygame.draw.rect(surface, (20, 26, 44), (hx, hy, head_w, head_h), border_radius=4)
+        pygame.draw.rect(surface, (56, 189, 248), (hx, hy, head_w, head_h), 2, border_radius=4)
+
+        # Glowing Cylon / Scanner Visor
+        visor_y = hy + 8
+        pygame.draw.rect(surface, (4, 12, 28), (hx + 3, visor_y, head_w - 6, 6), border_radius=2)
+        scan_off = int(6 * math.sin(_time.time() * 7))
+        pygame.draw.line(surface, (56, 189, 248), (cx - 7, visor_y + 3), (cx + 7, visor_y + 3), 2)
+        pygame.draw.circle(surface, (255, 255, 255), (cx + scan_off, visor_y + 3), 2)
+
+        # Armored cyber-torso
+        torso_pts = [(cx - 10, int(neck_y)), (cx + 10, int(neck_y)),
+                     (cx + 8, int(hip_y)), (cx - 8, int(hip_y))]
+        pygame.draw.polygon(surface, (26, 32, 52), torso_pts)
+        pygame.draw.polygon(surface, (56, 189, 248), torso_pts, 1)
+
+        # Pulsing Arc Reactor Core
+        core_y = int(neck_y + 16)
+        pygame.draw.circle(surface, (56, 189, 248), (cx, core_y), 5)
+        pygame.draw.circle(surface, (255, 255, 255), (cx, core_y), 2)
+
+        limb_col = (48, 58, 80) if not flash else WHITE
+
+    else:
+        # === CRIMSON BRAWLER / NINJA HUMAN MODEL ===
+        # Human Head
+        pygame.draw.circle(surface, (245, 215, 195) if not flash else WHITE, (cx, int(head_y)), head_r)
+        pygame.draw.circle(surface, (40, 25, 20), (cx, int(head_y)), head_r, 1)
+
+        # Red Martial Headband (Hachimaki)
+        band_y = int(head_y) - 6
+        pygame.draw.rect(surface, (220, 35, 35), (cx - 13, band_y, 26, 6), border_radius=2)
+
+        # Flowing trailing headband cloth ribbons
+        r_base_x = cx - d * 11
+        r_base_y = band_y + 3
+        t_wave = _time.time() * 8 - f.vx * 0.05
+        r1_mid_x = r_base_x - d * 9
+        r1_mid_y = r_base_y + int(math.sin(t_wave) * 4) + 2
+        r1_end_x = r_base_x - d * 20
+        r1_end_y = r_base_y + int(math.sin(t_wave + 1.2) * 6) + 4
+        pygame.draw.lines(surface, (220, 35, 35), False, [(r_base_x, r_base_y), (r1_mid_x, r1_mid_y), (r1_end_x, r1_end_y)], 3)
+        r2_end_x = r_base_x - d * 16
+        r2_end_y = r_base_y + int(math.cos(t_wave + 0.8) * 5) + 7
+        pygame.draw.lines(surface, (170, 25, 25), False, [(r_base_x, r_base_y + 1), (r1_mid_x, r1_mid_y + 2), (r2_end_x, r2_end_y)], 2)
+
+        # Focused combat eyes
+        for ox in (-4, 4):
+            ey_x = cx + d * 4 + ox
+            ey_y = int(head_y) - 1
+            pygame.draw.circle(surface, WHITE, (ey_x, ey_y), 3)
+            pygame.draw.circle(surface, (20, 20, 20), (ey_x + d, ey_y), 1.5)
+            # Martial brow
+            pygame.draw.line(surface, (50, 30, 25), (ey_x - 3, ey_y - 3), (ey_x + 3, ey_y - 2), 1)
+
+        # Martial Gi Torso
+        gi_pts = [(cx - 9, int(neck_y)), (cx + 9, int(neck_y)),
+                  (cx + 7, int(hip_y)), (cx - 7, int(hip_y))]
+        pygame.draw.polygon(surface, body, gi_pts)
+        pygame.draw.polygon(surface, (30, 30, 40), gi_pts, 1)
+
+        # Black Belt (Obi)
+        pygame.draw.rect(surface, (20, 22, 28), (cx - 8, int(hip_y) - 6, 16, 5), border_radius=1)
+        pygame.draw.line(surface, (20, 22, 28), (cx - d * 2, int(hip_y) - 2), (cx - d * 2, int(hip_y) + 7), 2)
+
+        limb_col = body
 
     # Player label
     lbl = gf("Segoe UI", 11, True).render(f.player_id, True, f.color)
-    surface.blit(lbl, (cx - lbl.get_width() // 2, int(head_y) - 28))
+    surface.blit(lbl, (cx - lbl.get_width() // 2, int(head_y) - 30))
 
     # Weapon label
     wname = WEAPON_DEFS.get(f.weapon, {}).get("name", "")
@@ -109,7 +182,7 @@ def draw_fighter(surface, f: Fighter, cam_x=0, cam_y=0):
         ey = my + int(math.sin(a2) * l2)
         pygame.draw.line(surface, color, start, (mx, my), thick)
         pygame.draw.line(surface, color, (mx, my), (ex, ey), thick)
-        pygame.draw.circle(surface, color, (mx, my), thick)
+        pygame.draw.circle(surface, (56, 189, 248) if is_bot else color, (mx, my), thick)
         return (ex, ey)
 
     if f.is_attacking and f.attack_anim > 0:

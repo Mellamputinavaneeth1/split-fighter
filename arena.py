@@ -130,26 +130,96 @@ class WeaponPickup:
         if not self.active:
             return
         t = _time.time()
-        bob = math.sin(t * 3 + self.x * 0.1) * 4
+        bob = math.sin(t * 3.5 + self.x * 0.1) * 5
         vis = WEAPON_VISUALS.get(self.weapon, {})
         col = vis.get("color", (200, 200, 200))
         glow_col = vis.get("glow", col)
 
-        dx, dy = int(self.x), int(self.y + bob)
+        cx = int(self.x + self.SIZE // 2)
+        cy = int(self.y + self.SIZE // 2 + bob)
 
-        # Glow
-        glow = pygame.Surface((48, 48), pygame.SRCALPHA)
-        p = int(40 + 30 * math.sin(t * 4))
-        pygame.draw.ellipse(glow, (*glow_col, p), (0, 0, 48, 48))
-        surface.blit(glow, (dx - 10, dy - 10))
+        # Holographic Light Pedestal on Ground / Platform
+        ped_y = int(self.y + self.SIZE + 4)
+        ped = pygame.Surface((44, 12), pygame.SRCALPHA)
+        ped_alpha = int(45 + 25 * math.sin(t * 4))
+        pygame.draw.ellipse(ped, (*glow_col, ped_alpha), (0, 0, 44, 12))
+        surface.blit(ped, (cx - 22, ped_y - 6))
 
-        # Item box
-        pygame.draw.rect(surface, col, (dx, dy, self.SIZE, self.SIZE), border_radius=4)
-        pygame.draw.rect(surface, (255, 255, 255), (dx, dy, self.SIZE, self.SIZE), 1, border_radius=4)
+        # Ambient Glow Bubble
+        glow = pygame.Surface((56, 56), pygame.SRCALPHA)
+        p = int(40 + 25 * math.sin(t * 4))
+        pygame.draw.circle(glow, (*glow_col, p), (28, 28), 24)
+        surface.blit(glow, (cx - 28, cy - 28))
 
-        # Label
+        # Vector Weapon Models
+        if self.weapon == "sword":
+            # Double-edged steel blade with gleam
+            pygame.draw.polygon(surface, (235, 242, 255),
+                                [(cx, cy - 18), (cx + 4, cy - 12), (cx + 3, cy + 6),
+                                 (cx, cy + 8), (cx - 3, cy + 6), (cx - 4, cy - 12)])
+            pygame.draw.line(surface, (255, 255, 255), (cx, cy - 17), (cx, cy + 7), 1)
+            # Golden crossguard
+            pygame.draw.rect(surface, (250, 200, 50), (cx - 8, cy + 7, 16, 3), border_radius=1)
+            pygame.draw.circle(surface, (255, 230, 90), (cx - 8, cy + 8), 2)
+            pygame.draw.circle(surface, (255, 230, 90), (cx + 8, cy + 8), 2)
+            # Wrapped hilt & pommel
+            pygame.draw.rect(surface, (110, 55, 20), (cx - 2, cy + 10, 4, 6), border_radius=1)
+            pygame.draw.circle(surface, (250, 200, 50), (cx, cy + 17), 3)
+
+        elif self.weapon == "axe":
+            # Wooden haft
+            pygame.draw.rect(surface, (130, 75, 30), (cx - 2, cy - 18, 4, 36), border_radius=1)
+            # Dual curved iron axe heads
+            pygame.draw.polygon(surface, (180, 195, 215),
+                                [(cx + 2, cy - 14), (cx + 14, cy - 18), (cx + 16, cy - 6),
+                                 (cx + 10, cy + 2), (cx + 2, cy - 2)])
+            pygame.draw.polygon(surface, (180, 195, 215),
+                                [(cx - 2, cy - 14), (cx - 14, cy - 18), (cx - 16, cy - 6),
+                                 (cx - 10, cy + 2), (cx - 2, cy - 2)])
+            # Silver blade edge highlights
+            pygame.draw.lines(surface, (255, 255, 255), False,
+                              [(cx + 14, cy - 18), (cx + 16, cy - 6), (cx + 10, cy + 2)], 2)
+            pygame.draw.lines(surface, (255, 255, 255), False,
+                              [(cx - 14, cy - 18), (cx - 16, cy - 6), (cx - 10, cy + 2)], 2)
+            # Center bracket & rivet
+            pygame.draw.rect(surface, (70, 80, 100), (cx - 3, cy - 11, 6, 7), border_radius=1)
+            pygame.draw.circle(surface, (255, 215, 0), (cx, cy - 8), 2)
+
+        elif self.weapon == "bow":
+            # Curved wooden stave
+            pygame.draw.arc(surface, (180, 110, 40), (cx - 13, cy - 18, 26, 36),
+                            math.pi * 0.25, math.pi * 1.75, 4)
+            pygame.draw.arc(surface, (240, 160, 60), (cx - 13, cy - 18, 26, 36),
+                            math.pi * 0.25, math.pi * 1.75, 2)
+            # Taut bowstring
+            pygame.draw.line(surface, (240, 240, 255), (cx - 4, cy - 16), (cx - 4, cy + 16), 1)
+            # Arrow nocked in center
+            pygame.draw.line(surface, (150, 90, 30), (cx - 8, cy), (cx + 12, cy), 2)
+            pygame.draw.polygon(surface, (230, 240, 255), [(cx + 12, cy - 3), (cx + 18, cy), (cx + 12, cy + 3)])
+            pygame.draw.line(surface, (230, 50, 50), (cx - 7, cy - 2), (cx - 5, cy), 1)
+            pygame.draw.line(surface, (230, 50, 50), (cx - 7, cy + 2), (cx - 5, cy), 1)
+
+        elif self.weapon == "shield":
+            # Kite shield body
+            shield_pts = [(cx, cy - 18), (cx + 13, cy - 12), (cx + 11, cy + 6),
+                          (cx, cy + 18), (cx - 11, cy + 6), (cx - 13, cy - 12)]
+            pygame.draw.polygon(surface, (30, 50, 90), shield_pts)
+            pygame.draw.polygon(surface, (190, 210, 245), shield_pts, 2)
+            # Golden cross & boss
+            pygame.draw.line(surface, (255, 215, 0), (cx, cy - 12), (cx, cy + 12), 2)
+            pygame.draw.line(surface, (255, 215, 0), (cx - 8, cy - 3), (cx + 8, cy - 3), 2)
+            pygame.draw.circle(surface, (255, 230, 90), (cx, cy - 3), 3)
+
+        # Sleek Floating Label Pill
         label = font.render(self.weapon.upper(), True, col)
-        surface.blit(label, (dx + self.SIZE // 2 - label.get_width() // 2, dy - 14))
+        lw, lh = label.get_width() + 10, label.get_height() + 2
+        lx = cx - lw // 2
+        ly = cy - 28
+        lb_bg = pygame.Surface((lw, lh), pygame.SRCALPHA)
+        lb_bg.fill((16, 18, 30, 200))
+        surface.blit(lb_bg, (lx, ly))
+        pygame.draw.rect(surface, (60, 70, 95), (lx, ly, lw, lh), 1, border_radius=4)
+        surface.blit(label, (cx - label.get_width() // 2, ly + 1))
 
 
 # --- Arrow projectile --------------------------------------------------------
@@ -224,6 +294,25 @@ class Arena:
             for _ in range(80)
         ]
 
+        # Cyberpunk City Skyline silhouette (background depth)
+        self.skyline = []
+        cur_x = 0
+        while cur_x < width + 120:
+            bw = random.randint(45, 95)
+            bh = random.randint(110, 260)
+            windows = []
+            for wy in range(GROUND_Y - bh + 16, GROUND_Y - 25, 18):
+                for wx in range(cur_x + 8, cur_x + bw - 10, 14):
+                    if random.random() < 0.6:
+                        windows.append((wx, wy))
+            has_beacon = random.random() < 0.45
+            self.skyline.append({
+                "x": cur_x, "w": bw, "h": bh,
+                "windows": windows,
+                "beacon": has_beacon,
+            })
+            cur_x += bw + random.randint(6, 18)
+
     def update(self, dt):
         for wp in self.weapon_pickups:
             wp.update(dt)
@@ -257,69 +346,156 @@ class Arena:
 
     # -- Drawing --------------------------------------------------------------
     def draw(self, surface, font_small, cam_x=0, cam_y=0):
-        # Background
-        surface.fill(C_BG)
+        # 1. Atmospheric Deep Night Sky
+        surface.fill((12, 14, 26))
         t = _time.time()
+
+        # Stars (twinkling)
         for s in self.stars:
             pulse = 0.5 + 0.5 * math.sin(t * s["speed"] * 0.3 + s["x"] * 0.01)
             a = int(s["a"] * pulse)
-            pygame.draw.circle(surface, (a, a, min(255, int(a * 1.4))),
-                               (int(s["x"] + cam_x * 0.1), int(s["y"] + cam_y * 0.1)),
+            pygame.draw.circle(surface, (a, a, min(255, int(a * 1.35))),
+                               (int(s["x"] + cam_x * 0.08), int(s["y"] + cam_y * 0.08)),
                                max(1, int(s["r"])))
 
-        # Ground
+        # 2. Cyberpunk City Skyline in distance
+        for b in getattr(self, "skyline", []):
+            bx = int(b["x"] + cam_x * 0.15)
+            by = GROUND_Y - b["h"]
+            bw, bh = b["w"], b["h"]
+            # Dark skyscraper silhouette
+            pygame.draw.rect(surface, (18, 22, 36), (bx, by, bw, bh))
+            pygame.draw.rect(surface, (28, 34, 52), (bx, by, bw, bh), 1)
+
+            # Glowing windows
+            for wx, wy in b["windows"]:
+                wx_screen = int(wx + cam_x * 0.15)
+                # Subtle window shimmer
+                w_shimmer = 0.6 + 0.4 * math.sin(t * 1.5 + wx * 0.2)
+                w_col = (int(50 * w_shimmer), int(75 * w_shimmer), int(120 * w_shimmer))
+                pygame.draw.rect(surface, w_col, (wx_screen, wy, 4, 6))
+
+            # Rooftop beacon light
+            if b.get("beacon"):
+                beacon_alpha = int(140 + 115 * math.sin(t * 5 + b["x"]))
+                pygame.draw.circle(surface, (beacon_alpha, 40, 40), (bx + bw // 2, by - 4), 2)
+                pygame.draw.line(surface, (45, 52, 75), (bx + bw // 2, by), (bx + bw // 2, by - 4), 1)
+
+        # 3. High-Tech Ground Floor
         ground = self.platforms[0]
         gx, gy = int(ground["x"] + cam_x), int(ground["y"] + cam_y)
-        pygame.draw.rect(surface, C_GROUND, (gx, gy, ground["w"], ground["h"]))
-        pygame.draw.line(surface, C_GROUND_TOP, (gx, gy), (gx + ground["w"], gy), 3)
-        # Ground grid lines
-        for i in range(0, ground["w"], 40):
-            pygame.draw.line(surface, (25, 25, 40), (gx + i, gy + 4), (gx + i, gy + ground["h"]), 1)
+        gw, gh = ground["w"], ground["h"]
 
-        # Platforms (skip ground at index 0)
+        # Base steel plate
+        pygame.draw.rect(surface, (26, 28, 42), (gx, gy, gw, gh))
+
+        # Top 8px Hazard Caution Stripes (///)
+        hazard_h = 8
+        pygame.draw.rect(surface, (20, 22, 34), (gx, gy, gw, hazard_h))
+        stripe_w = 18
+        for sx in range(gx - 20, gx + gw + 20, stripe_w):
+            pts = [(sx, gy + hazard_h), (sx + 8, gy + hazard_h),
+                   (sx + 14, gy), (sx + 6, gy)]
+            pygame.draw.polygon(surface, (200, 150, 45), pts)
+
+        # Neon Cyan Boundary Line
+        pygame.draw.line(surface, (56, 189, 248), (gx, gy), (gx + gw, gy), 2)
+
+        # Steel panel vertical joints & rivets
+        for px in range(gx + 50, gx + gw, 60):
+            pygame.draw.line(surface, (18, 20, 32), (px, gy + hazard_h), (px, gy + gh), 1)
+            pygame.draw.circle(surface, (70, 80, 105), (px, gy + hazard_h + 8), 1.5)
+
+        # 4. Sci-Fi Floating Platforms (skip ground at index 0)
         for p in self.platforms[1:]:
             px, py = int(p["x"] + cam_x), int(p["y"] + cam_y)
             pw, ph = p["w"], p["h"]
-            pygame.draw.rect(surface, C_PLATFORM, (px, py, pw, ph), border_radius=3)
-            pygame.draw.line(surface, C_PLAT_TOP, (px + 2, py), (px + pw - 2, py), 3)
-            # Underside shadow
-            pygame.draw.line(surface, (30, 30, 45), (px + 4, py + ph), (px + pw - 4, py + ph), 2)
 
-        # Walls
+            # Dark tech chassis
+            pygame.draw.rect(surface, (34, 40, 58), (px, py, pw, ph), border_radius=3)
+            pygame.draw.rect(surface, (50, 58, 82), (px, py, pw, ph), 1, border_radius=3)
+
+            # Metal vent grating in center
+            for vx in range(px + 16, px + pw - 16, 12):
+                pygame.draw.line(surface, (22, 26, 40), (vx, py + 4), (vx, py + ph - 4), 2)
+
+            # Top walking edge with glowing cyan sheen
+            pygame.draw.line(surface, (56, 189, 248), (px + 1, py), (px + pw - 1, py), 2)
+            pygame.draw.line(surface, (186, 230, 253), (px + 3, py), (px + pw - 3, py), 1)
+
+            # Neon Thruster Nodes underneath
+            t1_x = px + int(pw * 0.22)
+            t2_x = px + int(pw * 0.78)
+            for tx in (t1_x, t2_x):
+                # Thruster nozzle
+                pygame.draw.rect(surface, (25, 28, 42), (tx - 5, py + ph, 10, 3))
+                # Soft downward cyan thruster light
+                thruster_alpha = int(70 + 40 * math.sin(t * 6 + px))
+                glow_s = pygame.Surface((18, 12), pygame.SRCALPHA)
+                pygame.draw.ellipse(glow_s, (56, 189, 248, thruster_alpha), (0, 0, 18, 12))
+                surface.blit(glow_s, (tx - 9, py + ph))
+
+        # 5. Obstacles: Military Cargo Crates & Stone Monoliths
         for w in self.walls:
             if w.get("hp", 1) <= 0:
                 continue
             wx, wy = int(w["x"] + cam_x), int(w["y"] + cam_y)
             ww, wh = w["w"], w["h"]
-            if w.get("destructible"):
-                # Crate style
-                hp_ratio = w["hp"] / w["max_hp"] if w["max_hp"] > 0 else 1
-                c = (int(C_CRATE[0] * hp_ratio), int(C_CRATE[1] * hp_ratio), int(C_CRATE[2] * hp_ratio))
-                pygame.draw.rect(surface, c, (wx, wy, ww, wh), border_radius=2)
-                pygame.draw.line(surface, C_CRATE_DK, (wx, wy), (wx + ww, wy + wh), 1)
-                pygame.draw.line(surface, C_CRATE_DK, (wx + ww, wy), (wx, wy + wh), 1)
-                pygame.draw.rect(surface, C_CRATE_DK, (wx, wy, ww, wh), 2, border_radius=2)
-                # HP indicator
-                if hp_ratio < 1.0:
-                    bw = ww - 4
-                    pygame.draw.rect(surface, (80, 20, 20), (wx + 2, wy - 6, bw, 4), border_radius=1)
-                    pygame.draw.rect(surface, (220, 80, 40), (wx + 2, wy - 6, int(bw * hp_ratio), 4), border_radius=1)
-            else:
-                # Stone wall
-                pygame.draw.rect(surface, C_WALL, (wx, wy, ww, wh))
-                # Brick pattern
-                for by in range(0, wh, 12):
-                    off = 6 if (by // 12) % 2 == 1 else 0
-                    for bx in range(off, ww, 12):
-                        pygame.draw.rect(surface, C_WALL_DARK,
-                                         (wx + bx, wy + by, min(11, ww - bx), 11), 1)
-                pygame.draw.rect(surface, C_WALL_DARK, (wx, wy, ww, wh), 2)
 
-        # Weapon pickups
+            if w.get("destructible"):
+                # Military Cargo Crate
+                hp_ratio = w["hp"] / w["max_hp"] if w["max_hp"] > 0 else 1.0
+
+                # Base wooden box
+                pygame.draw.rect(surface, (120, 72, 32), (wx, wy, ww, wh), border_radius=2)
+
+                # Horizontal plank lines
+                pygame.draw.line(surface, (75, 42, 16), (wx, wy + wh // 3), (wx + ww, wy + wh // 3), 1)
+                pygame.draw.line(surface, (75, 42, 16), (wx, wy + (wh * 2) // 3), (wx + ww, wy + (wh * 2) // 3), 1)
+
+                # Diagonal reinforcement beams
+                pygame.draw.line(surface, (145, 88, 38), (wx + 4, wy + 4), (wx + ww - 4, wy + wh - 4), 2)
+                pygame.draw.line(surface, (145, 88, 38), (wx + ww - 4, wy + 4), (wx + 4, wy + wh - 4), 2)
+
+                # Reinforced Iron Corner Brackets
+                corner_sz = min(8, ww // 3)
+                for cx3, cy3 in [(wx, wy), (wx + ww - corner_sz, wy),
+                                 (wx, wy + wh - corner_sz), (wx + ww - corner_sz, wy + wh - corner_sz)]:
+                    pygame.draw.rect(surface, (90, 102, 122), (cx3, cy3, corner_sz, corner_sz))
+                    pygame.draw.circle(surface, (255, 215, 0), (cx3 + corner_sz // 2, cy3 + corner_sz // 2), 1.5)
+
+                pygame.draw.rect(surface, (60, 35, 15), (wx, wy, ww, wh), 1, border_radius=2)
+
+                # Damage Fractures & HP Bar
+                if hp_ratio < 1.0:
+                    # Jagged crack lines
+                    pygame.draw.line(surface, (250, 160, 40), (wx + 6, wy + 8), (wx + ww // 2, wy + wh // 2), 1)
+                    pygame.draw.line(surface, (250, 160, 40), (wx + ww // 2, wy + wh // 2), (wx + ww - 8, wy + wh - 6), 1)
+
+                    # Floating micro HP bar
+                    bar_w3 = ww
+                    pygame.draw.rect(surface, (20, 22, 34), (wx, wy - 7, bar_w3, 4), border_radius=1)
+                    pygame.draw.rect(surface, (235, 75, 45), (wx, wy - 7, int(bar_w3 * hp_ratio), 4), border_radius=1)
+
+            else:
+                # Stone Pillar / Ancient Monolith
+                pygame.draw.rect(surface, (55, 60, 72), (wx, wy, ww, wh))
+                pygame.draw.rect(surface, (80, 88, 105), (wx, wy, ww, 3))  # top highlight bevel
+
+                # Chiseled Brick courses
+                course_h = 14
+                for row_y in range(0, wh, course_h):
+                    pygame.draw.line(surface, (35, 38, 48), (wx, wy + row_y), (wx + ww, wy + row_y), 1)
+                    off = (ww // 2) if ((row_y // course_h) % 2 == 1) else 0
+                    pygame.draw.line(surface, (35, 38, 48), (wx + off, wy + row_y), (wx + off, wy + min(wh, row_y + course_h)), 1)
+
+                pygame.draw.rect(surface, (32, 35, 45), (wx, wy, ww, wh), 2)
+
+        # 6. High-Detail Weapon Pickups
         for wp in self.weapon_pickups:
             wp.draw(surface, font_small)
 
-        # Arrows
+        # 7. Arrows
         for a in self.arrows:
             a.draw(surface)
 
