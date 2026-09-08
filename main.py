@@ -336,6 +336,13 @@ async def main():
     want_block = False
     want_pickup = False
 
+    # Latched inputs: these stay True until consumed by a Firebase push.
+    # This prevents one-shot actions from being lost when KEYDOWN lands on
+    # an odd frame (since Firebase push only happens every 2 frames).
+    _latched_jump   = False
+    _latched_atk    = False
+    _latched_pickup = False
+
     # -- Game loop -------------------------------------------------------------
     running = True
     while running:
@@ -376,27 +383,33 @@ async def main():
                 if is_4p:
                     if my_role == "mover":
                         if ev.key in (pygame.K_w, pygame.K_SPACE):
-                            want_jump = True
+                            want_jump = True; _latched_jump = True
                         if ev.key == pygame.K_e:
-                            want_pickup = True
+                            want_pickup = True; _latched_pickup = True
                     elif my_role == "attacker":
                         if ev.key == pygame.K_j:
-                            want_atk = True
+                            want_atk = True; _latched_atk = True
                         if ev.key == pygame.K_k:
                             want_block = True
                 else:
                     if ev.key in (pygame.K_w, pygame.K_SPACE):
-                        want_jump = True
+                        want_jump = True; _latched_jump = True
                     if ev.key == pygame.K_j:
-                        want_atk = True
+                        want_atk = True; _latched_atk = True
                     if ev.key == pygame.K_e:
-                        want_pickup = True
+                        want_pickup = True; _latched_pickup = True
                     if ev.key == pygame.K_k:
                         want_block = True
 
             elif ev.type == pygame.KEYUP:
                 if ev.key == pygame.K_k:
                     want_block = False
+
+        # Merge latched flags: if a latch is still set, force the flag True
+        # this frame so it gets applied locally AND pushed to Firebase
+        if _latched_jump:   want_jump   = True
+        if _latched_atk:    want_atk    = True
+        if _latched_pickup: want_pickup = True
 
         # Continuous movement keys
         keys = pygame.key.get_pressed()
@@ -460,6 +473,10 @@ async def main():
                 "vx": my_fighter.vx,
                 "vy": my_fighter.vy,
             }
+            # Clear latches now that the action has been captured in inp_data
+            _latched_jump = False
+            _latched_atk = False
+            _latched_pickup = False
             slot = my_slot
             threading.Thread(target=db.push_input,
                              args=(room_code, slot, inp_data), daemon=True).start()
